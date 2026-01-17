@@ -224,7 +224,6 @@ interface NormalizedTransaction {
   amount: number;
   description: string;
   type: "debit" | "credit";
-  balance: number;
   accountId?: string;
   raw?: unknown;
 }

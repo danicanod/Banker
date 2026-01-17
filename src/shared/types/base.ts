@@ -24,7 +24,6 @@ export interface BankTransaction {
   description: string;
   amount: number;
   type: 'debit' | 'credit';
-  balance: number;
   reference?: string;
   category?: string;
 }

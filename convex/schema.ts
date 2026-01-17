@@ -43,9 +43,6 @@ export default defineSchema({
     // Reference to banks table
     bankId: v.id("banks"),
     
-    // Keep bank code for easy querying (denormalized)
-    bankCode: v.string(),
-    
     // Account identifier (optional, for multi-account support)
     accountId: v.optional(v.string()),
     
@@ -57,7 +54,6 @@ export default defineSchema({
     amount: v.number(),
     description: v.string(),
     type: v.union(v.literal("debit"), v.literal("credit")),
-    balance: v.number(),
     
     // Store the complete raw transaction for reference
     raw: v.optional(v.any()),
@@ -67,8 +63,7 @@ export default defineSchema({
   })
     .index("by_txnKey", ["txnKey"])
     .index("by_bankId", ["bankId"])
-    .index("by_bankCode", ["bankCode"])
-    .index("by_bankCode_date", ["bankCode", "date"])
+    .index("by_bankId_date", ["bankId", "date"])
     .index("by_createdAt", ["createdAt"]),
 
   /**
@@ -96,7 +91,6 @@ export default defineSchema({
     bankId: v.optional(v.id("banks")),
     
     // Convenience fields for transaction-created events (avoids joins for common queries)
-    bankCode: v.optional(v.string()),
     amount: v.optional(v.number()),
     description: v.optional(v.string()),
     

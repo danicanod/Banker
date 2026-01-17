@@ -90,7 +90,6 @@ export interface BanescoHttpTransaction {
   description: string;
   amount: number;
   type: 'debit' | 'credit';
-  balance?: number;
   reference?: string;
 }
 
@@ -927,7 +926,6 @@ export class BanescoHttpClient {
       description: description || 'Transacción',
       amount,
       type: transactionType,
-      balance: undefined,
       reference: undefined
     };
   }
@@ -940,7 +938,6 @@ export class BanescoHttpClient {
     let description = '';
     let debit = 0;
     let credit = 0;
-    let balance = 0;
     let reference = '';
     
     for (const cell of cells) {
@@ -975,9 +972,6 @@ export class BanescoHttpClient {
           } else if (debit === 0 && credit === 0) {
             // First amount - could be either, assume credit unless description indicates otherwise
             credit = amount;
-          } else if (balance === 0 && amount > Math.max(debit, credit) * 10) {
-            // Likely the balance (usually much larger)
-            balance = amount;
           } else if (debit === 0) {
             debit = amount;
           }
@@ -1007,7 +1001,6 @@ export class BanescoHttpClient {
       description: description || 'Transacción',
       amount: debit > 0 ? debit : credit,
       type: debit > 0 ? 'debit' : 'credit',
-      balance: balance > 0 ? balance : undefined,
       reference: reference || undefined
     };
   }
@@ -1021,14 +1014,12 @@ export class BanescoHttpClient {
     description: string;
     debit: number;
     credit: number;
-    balance: number;
   }>): BanescoHttpTransaction[] {
     return rawMovements.map(mov => ({
       date: this.parseDate(mov.date),
       description: mov.description,
       amount: mov.debit > 0 ? mov.debit : mov.credit,
       type: mov.debit > 0 ? 'debit' as const : 'credit' as const,
-      balance: mov.balance,
       reference: mov.reference
     }));
   }

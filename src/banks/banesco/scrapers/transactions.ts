@@ -309,7 +309,6 @@ export class BanescoTransactionsScraper extends BaseBankScraper<
           description: description || 'Transacción',
           amount: Math.abs(amount),
           type: transactionType,
-          balance: 0, // Will be updated if available
           bankName: 'Banesco'
         };
 

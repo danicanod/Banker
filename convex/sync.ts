@@ -35,7 +35,6 @@ interface BanescoTransaction {
   description: string;
   amount: number;
   type: "debit" | "credit";
-  balance: number;
 }
 
 /**
@@ -230,7 +229,6 @@ async function extractTransactionsFromPage(page: Page): Promise<BanescoTransacti
         description: description || "Transacción",
         amount,
         type,
-        balance: 0,
       });
     }
   }
@@ -275,7 +273,6 @@ export const syncBanescoDaily = internalAction({
         amount: tx.amount,
         description: tx.description,
         type: tx.type,
-        balance: tx.balance,
         raw: tx,
       }));
 

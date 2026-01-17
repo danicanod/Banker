@@ -228,29 +228,38 @@ export class BncHttpClient {
     const accountsScraped: string[] = [];
     const errors: string[] = [];
 
-    // Account types with their dropdown indices
-    const accountTypes = [
-      { index: 1, name: BncAccountType.VES_1109 },
-      { index: 2, name: BncAccountType.USD_0816 },
-      { index: 3, name: BncAccountType.USD_0801 }
-    ];
+    // Dynamically discover accounts from the dropdown
+    const accounts = await this.discoverAccounts();
+    
+    if (accounts.length === 0) {
+      this.log('⚠️  No accounts found in dropdown');
+      return {
+        success: true,
+        message: 'No accounts found',
+        data: [],
+        timestamp: new Date(),
+        bankName: 'BNC',
+        accountsFound: 0,
+        transactionsExtracted: 0
+      };
+    }
 
-    for (const account of accountTypes) {
+    for (const account of accounts) {
       try {
-        this.log(`💰 Fetching transactions for ${account.name}...`);
+        this.log(`💰 Fetching transactions for ${account.label}...`);
         
-        const transactions = await this.fetchAccountTransactions(account.index, account.name);
+        const transactions = await this.fetchAccountTransactionsWithValue(account.value, account.accountId || account.label);
         
         if (transactions.length > 0) {
           allTransactions.push(...transactions);
-          accountsScraped.push(account.name);
-          this.log(`   ✅ Got ${transactions.length} transactions from ${account.name}`);
+          accountsScraped.push(account.label);
+          this.log(`   ✅ Got ${transactions.length} transactions from ${account.label}`);
         } else {
-          this.log(`   ⚠️  No transactions for ${account.name}`);
+          this.log(`   ⚠️  No transactions for ${account.label}`);
         }
 
       } catch (error: any) {
-        const errorMsg = `Failed to fetch ${account.name}: ${error.message}`;
+        const errorMsg = `Failed to fetch ${account.label}: ${error.message}`;
         this.log(`   ❌ ${errorMsg}`);
         errors.push(errorMsg);
       }
@@ -272,6 +281,96 @@ export class BncHttpClient {
         errors: errors.length > 0 ? errors : undefined
       }
     };
+  }
+  
+  /**
+   * Discover available accounts from the transactions page dropdown
+   */
+  private async discoverAccounts(): Promise<Array<{ value: string; label: string; accountId?: string }>> {
+    const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS_PAGE, {
+      'Referer': BNC_HTTP_URLS.WELCOME
+    });
+
+    const $ = cheerio.load(pageHtml);
+    const accountSelect = $('#Frm_Accounts select[name="Account"], select#Account');
+    const accounts: Array<{ value: string; label: string; accountId?: string }> = [];
+    
+    accountSelect.find('option').each((_, el) => {
+      const value = $(el).attr('value');
+      const label = $(el).text().trim();
+      
+      if (value && value !== '0') {  // Skip the "-- Seleccione --" option
+        // Try to extract account number from label (e.g., "Cuenta Corriente - 0123456789")
+        const accountNumberMatch = label.match(/\b(\d{10,20})\b/);
+        const accountId = accountNumberMatch ? accountNumberMatch[1] : undefined;
+        
+        accounts.push({ value, label, accountId });
+        this.log(`   Discovered account: ${label} (accountId: ${accountId || 'N/A'})`);
+      }
+    });
+    
+    return accounts;
+  }
+  
+  /**
+   * Fetch transactions for a specific account using its dropdown value
+   */
+  private async fetchAccountTransactionsWithValue(accountValue: string, accountName: string): Promise<BncTransaction[]> {
+    const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS_PAGE, {
+      'Referer': BNC_HTTP_URLS.WELCOME
+    });
+
+    const $ = cheerio.load(pageHtml);
+    const token = extractRequestVerificationToken(pageHtml);
+    
+    const formData: Record<string, string> = {};
+    
+    if (token) {
+      formData['__RequestVerificationToken'] = token;
+    }
+    
+    $('#Frm_Accounts input[type="hidden"]').each((_, el) => {
+      const name = $(el).attr('name');
+      const value = $(el).attr('value') || '';
+      if (name && name !== '__RequestVerificationToken') {
+        formData[name] = value;
+      }
+    });
+    
+    formData['Account'] = accountValue;
+
+    try {
+      const result = await this.httpClient.postForm(BNC_HTTP_URLS.TRANSACTIONS_LIST, formData, {
+        'Referer': BNC_HTTP_URLS.TRANSACTIONS_PAGE,
+        'Accept': '*/*',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin'
+      });
+      
+      try {
+        const jsonResponse = JSON.parse(result.html);
+        
+        if (jsonResponse.Type === 200 && jsonResponse.Value) {
+          return this.parseTransactionsHtml(jsonResponse.Value, accountName);
+        } else if (jsonResponse.Type === 300 || jsonResponse.Type === 350 || jsonResponse.Type === 500) {
+          return [];
+        } else if (jsonResponse.Type === 505) {
+          this.isAuthenticated = false;
+          return [];
+        }
+      } catch {
+        if (result.html.includes('Tbl_Transactions')) {
+          return this.parseTransactionsHtml(result.html, accountName);
+        }
+      }
+      
+    } catch (error: any) {
+      this.log(`   POST to transactions list failed: ${error.message}`);
+    }
+
+    return [];
   }
 
   /**
@@ -705,7 +804,7 @@ export class BncHttpClient {
           description: description || typeStr,
           amount: Math.abs(amount),
           type: transactionType,
-          balance: 0,
+          reference,
           bankName: 'BNC',
           transactionType: typeStr,
           referenceNumber: reference,

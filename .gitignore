@@ -125,4 +125,5 @@ PRIVATE_*
 launch-*.md
 
 # Sessions directory (contains sensitive session data)
-.sessions/ 
+.sessions/
+trees/

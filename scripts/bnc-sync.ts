@@ -104,7 +104,6 @@ async function main(): Promise<void> {
     amount: tx.amount,
     description: tx.description,
     type: tx.type,
-    balance: tx.balance || 0,
     accountId: tx.accountName,
     raw: tx,
   }));

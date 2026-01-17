@@ -762,7 +762,6 @@ export function parseMovementsTable(html: string): {
     description: string;
     debit: number;
     credit: number;
-    balance: number;
   }>;
   found: boolean;
 } {
@@ -773,7 +772,6 @@ export function parseMovementsTable(html: string): {
     description: string;
     debit: number;
     credit: number;
-    balance: number;
   }> = [];
   
   // Find the movements table - look for tables with date/reference/description headers
@@ -816,7 +814,6 @@ export function parseMovementsTable(html: string): {
     let description = '';
     let debit = 0;
     let credit = 0;
-    let balance = 0;
     
     for (const cell of rowData) {
       // Date pattern (DD/MM/YYYY or DD-MM-YYYY)
@@ -840,11 +837,9 @@ export function parseMovementsTable(html: string): {
           .replace(/\s/g, '');
         const parsed = parseFloat(cleanAmount);
         if (!isNaN(parsed)) {
-          // Assign to debit/credit/balance based on position or sign
+          // Assign to debit/credit based on sign
           if (parsed < 0 || cell.includes('-')) {
             debit = Math.abs(parsed);
-          } else if (balance === 0 && parsed > 1000) {
-            balance = parsed; // Likely the running balance
           } else {
             credit = parsed;
           }
@@ -864,8 +859,7 @@ export function parseMovementsTable(html: string): {
         reference,
         description,
         debit,
-        credit,
-        balance
+        credit
       });
     }
   });

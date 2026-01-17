@@ -39,7 +39,7 @@ interface Transaction {
   description: string;
   amount: number;
   type: "debit" | "credit";
-  balance: number;
+  accountId?: string;
 }
 
 // ============================================================================
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
               description: tx.description,
               amount: tx.amount,
               type: tx.type,
-              balance: tx.balance || 0,
+              accountId: account.accountNumber,
             });
           }
         }
@@ -137,7 +137,6 @@ async function main(): Promise<void> {
             description: tx.description,
             amount: tx.amount,
             type: tx.type,
-            balance: tx.balance || 0,
           });
         }
       }
@@ -166,7 +165,7 @@ async function main(): Promise<void> {
       amount: tx.amount,
       description: tx.description,
       type: tx.type,
-      balance: tx.balance,
+      accountId: tx.accountId,
       raw: tx,
     }));
 

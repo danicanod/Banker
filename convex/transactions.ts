@@ -19,7 +19,6 @@ const transactionInput = v.object({
   amount: v.number(),
   description: v.string(),
   type: v.union(v.literal("debit"), v.literal("credit")),
-  balance: v.number(),
   raw: v.optional(v.any()),
 });
 
@@ -106,14 +105,12 @@ export const ingestTransactions = internalMutation({
       const now = Date.now();
       const txnId = await ctx.db.insert("transactions", {
         bankId,
-        bankCode: tx.bank,
         accountId: accountId ?? tx.accountId,
         txnKey: tx.txnKey,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
         type: tx.type,
-        balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
       });
@@ -123,7 +120,6 @@ export const ingestTransactions = internalMutation({
         type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
-        bankCode: tx.bank,
         amount: tx.amount,
         description: tx.description,
         createdAt: now,
@@ -162,9 +158,19 @@ export const getRecentTransactions = query({
   },
   handler: async (ctx, { bank, limit = 50 }) => {
     if (bank) {
+      // Lookup bank by code to get bankId
+      const bankRecord = await ctx.db
+        .query("banks")
+        .withIndex("by_code", (q) => q.eq("code", bank))
+        .first();
+      
+      if (!bankRecord) {
+        return [];
+      }
+      
       return await ctx.db
         .query("transactions")
-        .withIndex("by_bankCode", (q) => q.eq("bankCode", bank))
+        .withIndex("by_bankId", (q) => q.eq("bankId", bankRecord._id))
         .order("desc")
         .take(limit);
     }
@@ -336,14 +342,12 @@ export const ingestFromLocal = mutation({
       const now = Date.now();
       const txnId = await ctx.db.insert("transactions", {
         bankId,
-        bankCode: tx.bank,
         accountId: tx.accountId,
         txnKey: tx.txnKey,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
         type: tx.type,
-        balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
       });
@@ -353,7 +357,6 @@ export const ingestFromLocal = mutation({
         type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
-        bankCode: tx.bank,
         amount: tx.amount,
         description: tx.description,
         createdAt: now,
