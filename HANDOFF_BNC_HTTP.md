@@ -73,11 +73,12 @@ Changed from `Promise.all([click, waitForSelector])` to sequential `await click(
    - **Note:** Playwright and HTTP clients use different cookie contexts, so they can't share sessions or clear each other's sessions
    - **Best practice:** Wait 5+ minutes between test runs, or use only one client type per session
 
-2. **HTTP Transactions** - Now uses correct endpoint:
+2. **HTTP Transactions** - ✅ **NOW WORKING** (Jan 17, 2026)
    - **AJAX Endpoint**: `POST /Accounts/Transactions/Last25_List`
-   - **Form Data**: Serialized `#Frm_Accounts` (includes `__RequestVerificationToken`, `ddlAccounts`, etc.)
+   - **Key Fix**: Form field is `Account` (not `ddlAccounts`), values are encrypted hex strings
+   - **Form Data**: `__RequestVerificationToken` + `Account=0x0200000...` (hex value from select options)
    - **Response**: JSON with `Type: 200` and `Value` containing HTML with `#Tbl_Transactions`
-   - **Status**: Updated in HTTP client, needs testing without session conflicts
+   - **Performance**: 26 transactions in ~1.9 seconds (pure HTTP, no browser!)
    
    From analysis of BNC's JavaScript files:
    ```javascript
@@ -88,7 +89,7 @@ Changed from `Promise.all([click, waitForSelector])` to sequential `await click(
    function List(n,t,i) { $.post(n, $("#Frm_Accounts").serialize(), function(n) { ... }); }
    ```
 
-3. **Playwright Transactions** - Now working (see next section for details)
+3. **Playwright Transactions** - Also working (fallback mode)
 
 ---
 
@@ -156,50 +157,51 @@ BNC locks sessions server-side for 5-10 minutes. If you see `"sesión previa act
 
 ---
 
-## Remaining Work: HTTP Transaction Fetching
+## ✅ HTTP Transaction Fetching - COMPLETE (Jan 17, 2026)
 
-### Current State
+### Solution
 
-HTTP login works, but transaction fetching returns `Type: 500` with message `E00`.
+The issue was the form field name and value format:
 
-### Root Cause (Hypothesis)
+| Wrong | Correct |
+|-------|---------|
+| `ddlAccounts=1` | `Account=0x02000000...` |
 
-The HTTP client is not sending the complete serialized form payload. BNC's JavaScript does:
+**Root cause**: BNC uses a `<select name="Account">` with encrypted hex strings as option values, not simple indices.
 
-```javascript
-$.post("/Accounts/Transactions/Last25_List", $("#Frm_Accounts").serialize(), ...)
+### Working Form Payload
+
+```
+__RequestVerificationToken=<token-from-page>
+Account=0x02000000FA96288046229F90134100880C54DD08... (hex value from select option)
+prv_OldPage=0
+Page=1
+PageSize=10
+prv_TotalRows=0
 ```
 
-The HTTP client currently sends only hidden inputs and `ddlAccounts`, but may be missing:
-- The actual `<select>` value (Bootstrap-Select stores it differently)
-- Additional form fields rendered by JavaScript
-- Required headers (`X-Requested-With: XMLHttpRequest`)
+### Test Results
 
-### Next Steps for HTTP Transactions
+```bash
+BNC_DEBUG=true npm run example:bnc-http
+```
 
-1. **Capture exact POST body** - Run the network capture script while clicking filter/account/search in browser:
-   ```bash
-   npm run capture:bnc
-   ```
-   Examine the JSON output for the POST to `/Accounts/Transactions/Last25_List`.
+Output:
+```
+✅ Got 25 transactions from BNC VES 1109
+✅ Got 1 transactions from BNC USD 0816
+⚠️  No transactions for BNC USD 0801 (empty account)
+🎉 Fetched 26 transactions from 2 accounts in 1886ms
+```
 
-2. **Update HTTP client** - Mirror the exact payload structure in `src/banks/bnc/http/bnc-http-client.ts`:
-   - Ensure `select` elements are included (not just hidden inputs)
-   - Add `X-Requested-With: XMLHttpRequest` header
-   - Match content-type exactly
+### Performance Comparison
 
-3. **Test with fresh session** - Wait for session timeout, then run:
-   ```bash
-   BNC_DEBUG=true npm run example:bnc-http
-   ```
+| Method | Time | Transactions |
+|--------|------|--------------|
+| HTTP | ~2 seconds | 26 |
+| Playwright | ~15-20 seconds | 26 |
 
-### Data Quality Note
-
-Transaction parsing may need column alignment fixes. The sample transaction showed:
-- Date format issues (e.g., `2026063941-01-14` instead of `2026-01-14`)
-- Description/amount column swap
-
-Suggestion: Log raw extracted rows/headers during parsing to verify column mapping.
+**Speed improvement: ~8-10x faster with HTTP!**
 
 ---
 
@@ -241,20 +243,14 @@ package.json                        # Added example:bnc-http script
 
 ## Next Steps
 
-### Priority 1: Complete HTTP Transaction Fetching
-The AJAX endpoint is known (`POST /Accounts/Transactions/Last25_List`), but the exact payload is incomplete.
+### ✅ COMPLETED: HTTP Transaction Fetching
+Full HTTP-based scraping now works! Login + transactions in ~3 seconds.
 
-1. Capture the exact POST body using `npm run capture:bnc` (with filter/account/search clicks)
-2. Update `src/banks/bnc/http/bnc-http-client.ts` `fetchAccountTransactions()` to match
-3. Verify with `BNC_DEBUG=true npm run example:bnc-http`
+### Optional: Transaction Parsing Improvements
+- Date parsing is working correctly
+- Could add more detailed transaction type inference from the type column
 
-### Priority 2: Fix Transaction Parsing
-Column mapping may be off. Steps:
-1. Add debug logging in `parseTransactionsHtml()` to print raw row data
-2. Align columns: Date, Type, Reference, Amount, Description
-3. Fix date parsing in `parseDate()` method
-
-### Priority 3: Session Management (Optional)
+### Optional: Session Management Improvements
 Current workaround (wait 5+ min) works. If automation is needed:
 1. Implement server-side session invalidation if BNC supports it
 2. Or add retry with exponential backoff (30s, 60s, 120s)

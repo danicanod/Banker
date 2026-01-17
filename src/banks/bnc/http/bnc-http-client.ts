@@ -523,6 +523,7 @@ export class BncHttpClient {
   private async fetchAccountTransactions(accountIndex: number, accountName: string): Promise<BncTransaction[]> {
     // BNC uses AJAX to load transactions via POST to /Accounts/Transactions/Last25_List
     // The form #Frm_Accounts is serialized and sent
+    // Key insight: The select field is named "Account" and values are encrypted hex strings
     
     // First, load the transactions page to get the CSRF token and form structure
     const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS_PAGE, {
@@ -539,9 +540,10 @@ export class BncHttpClient {
     
     // Log what's on the page for debugging
     const hasForm = $('#Frm_Accounts').length > 0;
-    const selectDropdown = $('#Frm_Accounts select[name="ddlAccounts"], select#ddlAccounts');
-    const hasDropdown = selectDropdown.length > 0;
-    this.log(`   Page has #Frm_Accounts: ${hasForm}, has select ddlAccounts: ${hasDropdown}`);
+    // The select is named "Account", not "ddlAccounts"!
+    const accountSelect = $('#Frm_Accounts select[name="Account"], select#Account');
+    const hasAccountSelect = accountSelect.length > 0;
+    this.log(`   Page has #Frm_Accounts: ${hasForm}, has select Account: ${hasAccountSelect}`);
     
     // Extract all form fields from #Frm_Accounts
     const formData: Record<string, string> = {};
@@ -561,24 +563,33 @@ export class BncHttpClient {
       }
     });
     
-    // Get account options from select dropdown if present
-    if (hasDropdown) {
-      const options: string[] = [];
-      selectDropdown.find('option').each((_, el) => {
+    // Get account options from select dropdown
+    // BNC uses encrypted hex strings as account values, not simple indices!
+    // Example: "0x02000000FA96288046229F90134100880C54DD08..."
+    const accountValues: string[] = [];
+    if (hasAccountSelect) {
+      accountSelect.find('option').each((_, el) => {
         const val = $(el).attr('value');
         const text = $(el).text().trim();
-        if (val) {
-          options.push(`${val}: ${text}`);
+        if (val && val !== '0') {  // Skip the "-- Seleccione --" option (value="0")
+          accountValues.push(val);
+          this.log(`   Account option: ${text.substring(0, 40)}... → ${val.substring(0, 30)}...`);
         }
       });
-      this.log(`   Account options: ${options.join(', ')}`);
     }
     
-    // Set the selected account - use the value from the select options
-    // BNC typically uses account index (1, 2, 3) or account numbers
-    formData['ddlAccounts'] = accountIndex.toString();
+    // Set the selected account using the actual hex value from the options
+    // accountIndex is 1-based, so accountValues[0] = account 1, etc.
+    const selectedAccountValue = accountValues[accountIndex - 1];
+    if (!selectedAccountValue) {
+      this.log(`   ⚠️  No account found at index ${accountIndex} (available: ${accountValues.length})`);
+      return [];
+    }
     
-    this.log(`   Sending ${Object.keys(formData).length} form fields with ddlAccounts=${accountIndex}`);
+    // The form field is "Account", not "ddlAccounts"!
+    formData['Account'] = selectedAccountValue;
+    
+    this.log(`   Sending ${Object.keys(formData).length} form fields with Account=${selectedAccountValue.substring(0, 30)}...`);
 
     // POST to the AJAX endpoint that returns transaction HTML
     try {
