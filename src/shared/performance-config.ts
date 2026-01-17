@@ -100,7 +100,7 @@ export const BANK_PERFORMANCE_CONFIGS = {
    */
   BNC: {
     auth: PERFORMANCE_PRESETS.AGGRESSIVE,   // Keep JS for AJAX login flow
-    scraping: PERFORMANCE_PRESETS.AGGRESSIVE // Keep JS for dynamic tables
+    scraping: PERFORMANCE_PRESETS.BALANCED  // Need CSS for transaction table visibility
   },
 
   /**

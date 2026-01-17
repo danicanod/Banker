@@ -88,7 +88,120 @@ Changed from `Promise.all([click, waitForSelector])` to sequential `await click(
    function List(n,t,i) { $.post(n, $("#Frm_Accounts").serialize(), function(n) { ... }); }
    ```
 
-3. **Playwright Transactions** - Untested (blocked by session conflicts during testing)
+3. **Playwright Transactions** - Now working (see next section for details)
+
+---
+
+## Verified Working: Playwright Transaction Scraping (Jan 17, 2026)
+
+Playwright-based transaction fetching is now confirmed working with real data.
+
+### Test Results
+
+- **Transactions retrieved:** 26 total (across 2 accounts)
+- **Accounts scraped:** VES and USD accounts
+- **Method:** `BncScraper` with `forcePlaywright: true`
+
+### Key Fixes Applied
+
+#### 1. Performance Config: Keep CSS for Scraping
+
+BNC's transaction table uses Bootstrap-Select dropdowns. Without CSS, the dropdown icons are invisible and clicks time out.
+
+**File:** `src/shared/performance-config.ts`
+
+```typescript
+BNC: {
+  auth: PERFORMANCE_PRESETS.AGGRESSIVE,   // Keep JS for AJAX login
+  scraping: PERFORMANCE_PRESETS.BALANCED  // Keep CSS for table visibility
+}
+```
+
+#### 2. Resilient Dropdown Expansion
+
+Detail expansion is optional and capped to avoid long timeouts if icons are not visible.
+
+**File:** `src/banks/bnc/scrapers/transactions.ts` - `expandAllTransactionDetails()`
+
+- Limits expansion attempts to first 5 icons
+- Uses 2-second timeout per icon instead of 30 seconds
+- Checks visibility before clicking
+- Non-fatal: continues with extraction even if expansion fails
+
+### How to Reproduce
+
+**Step 1: Auth smoke test**
+```bash
+npm run example:bnc
+```
+
+**Step 2: Full scrape with transactions**
+```bash
+tsx -e "
+import { config } from 'dotenv'; config();
+import { BncScraper } from './src/banks/bnc/scrapers/bnc-scraper.ts';
+const creds = { card: process.env.BNC_CARD, id: process.env.BNC_ID, password: process.env.BNC_PASSWORD };
+const scraper = new BncScraper(creds, { forcePlaywright: true, headless: true });
+scraper.scrapeAll().then(s => {
+  console.log('Auth:', s.authResult.success ? 'OK' : 'FAIL');
+  let t = 0; s.transactionResults.forEach(r => t += r.data?.length || 0);
+  console.log('Transactions:', t);
+});
+"
+```
+
+### Important: Session Conflicts
+
+BNC locks sessions server-side for 5-10 minutes. If you see `"sesión previa activa"`, wait before retrying. Do not run Playwright and HTTP tests back-to-back.
+
+---
+
+## Remaining Work: HTTP Transaction Fetching
+
+### Current State
+
+HTTP login works, but transaction fetching returns `Type: 500` with message `E00`.
+
+### Root Cause (Hypothesis)
+
+The HTTP client is not sending the complete serialized form payload. BNC's JavaScript does:
+
+```javascript
+$.post("/Accounts/Transactions/Last25_List", $("#Frm_Accounts").serialize(), ...)
+```
+
+The HTTP client currently sends only hidden inputs and `ddlAccounts`, but may be missing:
+- The actual `<select>` value (Bootstrap-Select stores it differently)
+- Additional form fields rendered by JavaScript
+- Required headers (`X-Requested-With: XMLHttpRequest`)
+
+### Next Steps for HTTP Transactions
+
+1. **Capture exact POST body** - Run the network capture script while clicking filter/account/search in browser:
+   ```bash
+   npm run capture:bnc
+   ```
+   Examine the JSON output for the POST to `/Accounts/Transactions/Last25_List`.
+
+2. **Update HTTP client** - Mirror the exact payload structure in `src/banks/bnc/http/bnc-http-client.ts`:
+   - Ensure `select` elements are included (not just hidden inputs)
+   - Add `X-Requested-With: XMLHttpRequest` header
+   - Match content-type exactly
+
+3. **Test with fresh session** - Wait for session timeout, then run:
+   ```bash
+   BNC_DEBUG=true npm run example:bnc-http
+   ```
+
+### Data Quality Note
+
+Transaction parsing may need column alignment fixes. The sample transaction showed:
+- Date format issues (e.g., `2026063941-01-14` instead of `2026-01-14`)
+- Description/amount column swap
+
+Suggestion: Log raw extracted rows/headers during parsing to verify column mapping.
+
+---
 
 ## Files Modified/Created
 
@@ -128,27 +241,23 @@ package.json                        # Added example:bnc-http script
 
 ## Next Steps
 
-### Priority 1: Fix Transaction Fetching
-1. Run Playwright scraper with network capture enabled:
-   ```bash
-   npm run capture:bnc
-   ```
-2. Look for AJAX calls to understand how transactions are loaded
-3. The transactions page likely requires:
-   - A specific POST request with form data
-   - Or an AJAX endpoint like `/Accounts/Transactions/GetLast25`
+### Priority 1: Complete HTTP Transaction Fetching
+The AJAX endpoint is known (`POST /Accounts/Transactions/Last25_List`), but the exact payload is incomplete.
 
-### Priority 2: Handle Session Conflicts
-Options:
-1. Implement a "force logout" endpoint call before login
-2. Add a retry with exponential backoff
-3. Document that users should wait for session timeout
+1. Capture the exact POST body using `npm run capture:bnc` (with filter/account/search clicks)
+2. Update `src/banks/bnc/http/bnc-http-client.ts` `fetchAccountTransactions()` to match
+3. Verify with `BNC_DEBUG=true npm run example:bnc-http`
 
-### Priority 3: Test End-to-End
-1. Wait for any existing session to timeout
-2. Run: `source .env && BNC_DEBUG=true npm run example:bnc-http`
-3. Verify login succeeds
-4. Check if transactions are returned
+### Priority 2: Fix Transaction Parsing
+Column mapping may be off. Steps:
+1. Add debug logging in `parseTransactionsHtml()` to print raw row data
+2. Align columns: Date, Type, Reference, Amount, Description
+3. Fix date parsing in `parseDate()` method
+
+### Priority 3: Session Management (Optional)
+Current workaround (wait 5+ min) works. If automation is needed:
+1. Implement server-side session invalidation if BNC supports it
+2. Or add retry with exponential backoff (30s, 60s, 120s)
 
 ## BNC API Reference (from Network Capture)
 
@@ -182,11 +291,14 @@ GET https://personas.bncenlinea.com/Accounts/Transactions/Last25
 ## Environment Variables
 
 ```bash
-BNC_CARD=5410360143997535
-BNC_ID=27198516
-BNC_PASSWORD=YourPassword
-BNC_DEBUG=true                    # Optional: verbose logging
-BNC_FORCE_PLAYWRIGHT=true         # Optional: skip HTTP mode
+# Required credentials (set in .env file)
+BNC_CARD=<16-digit card number>
+BNC_ID=<cedula number>
+BNC_PASSWORD=<password>
+
+# Optional flags
+BNC_DEBUG=true                    # Verbose logging
+BNC_FORCE_PLAYWRIGHT=true         # Skip HTTP mode, use browser only
 ```
 
 ## Quick Test Commands

@@ -225,28 +225,40 @@ export class BncTransactionsScraper extends BaseBankScraper<
   }
 
   /**
-   * Expand all transaction details
+   * Expand all transaction details (optional - transaction data is in the main rows)
    */
   private async expandAllTransactionDetails(): Promise<void> {
     try {
-      this.log('📖 Expanding all transaction details...');
+      this.log('📖 Attempting to expand transaction details...');
       
       const dropdownIcons = await this.page.$$(this.getSelectors().dropdownIcon);
-      this.log(`Found ${dropdownIcons.length} dropdown icons to expand`);
+      this.log(`Found ${dropdownIcons.length} dropdown icons`);
       
-      for (let i = 0; i < dropdownIcons.length; i++) {
+      // Limit to first 5 to avoid long timeouts, and use short timeout
+      const maxToExpand = Math.min(dropdownIcons.length, 5);
+      let expanded = 0;
+      
+      for (let i = 0; i < maxToExpand; i++) {
         try {
-          await dropdownIcons[i].click();
-          await this.page.waitForTimeout(200); // Small delay between clicks
-        } catch (error) {
-          this.log(`⚠️  Failed to click dropdown ${i + 1}: ${error}`);
+          // Check if icon is visible before clicking
+          const isVisible = await dropdownIcons[i].isVisible();
+          if (isVisible) {
+            await dropdownIcons[i].click({ timeout: 2000 });
+            await this.page.waitForTimeout(100);
+            expanded++;
+          }
+        } catch {
+          // Silently skip - details expansion is optional
         }
       }
       
-      this.log('✅ All transaction details expanded');
+      if (expanded > 0) {
+        this.log(`✅ Expanded ${expanded} transaction details`);
+      }
       
     } catch (error) {
-      this.log(`⚠️  Error expanding transaction details: ${error}`);
+      // Non-fatal - continue with extraction
+      this.log(`ℹ️  Skipping details expansion`);
     }
   }
 
