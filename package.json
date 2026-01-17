@@ -32,6 +32,8 @@
     "capture:banesco": "CAPTURE_BANK=banesco tsx src/shared/examples/capture-network-flow.ts",
     "capture:bnc": "CAPTURE_BANK=bnc tsx src/shared/examples/capture-network-flow.ts",
     "sync": "tsx scripts/local-sync.ts",
+    "sync:banesco": "tsx scripts/local-sync.ts",
+    "sync:bnc": "tsx scripts/bnc-sync.ts",
     "postinstall": "npx playwright install chromium"
   },
   "keywords": [

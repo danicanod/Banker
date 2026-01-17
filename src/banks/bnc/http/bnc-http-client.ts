@@ -15,6 +15,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import { createHash } from 'crypto';
 import { 
   CookieFetch, 
   createCookieFetch,
@@ -686,8 +687,20 @@ export class BncHttpClient {
         const amount = this.parseAmount(amountStr);
         const transactionType = this.determineTransactionType(amountStr, typeStr);
 
+        // Generate deterministic transaction ID using hash of stable fields
+        // This ensures idempotency in Convex even if references are missing/duplicated
+        const stableKey = [
+          date,
+          String(Math.abs(amount)),
+          reference,
+          description || typeStr,
+          transactionType,
+          accountName
+        ].join('|');
+        const txnId = `bnc-${createHash('sha256').update(stableKey).digest('hex').slice(0, 16)}`;
+
         const transaction: BncTransaction = {
-          id: `bnc-${reference}-${date}`,
+          id: txnId,
           date,
           description: description || typeStr,
           amount: Math.abs(amount),

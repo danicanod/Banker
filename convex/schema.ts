@@ -4,7 +4,7 @@
  * Tables:
  * - banks: bank definitions (Banesco, BNC, etc.)
  * - transactions: bank transactions with idempotent txnKey
- * - newTransactionEvents: tracks newly detected transactions for notifications
+ * - events: generic event system for notifications (transaction.created, etc.)
  */
 
 import { defineSchema, defineTable } from "convex/server";
@@ -72,30 +72,40 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"]),
 
   /**
-   * New transaction events table
+   * Generic events table
    * 
-   * One record per newly inserted transaction.
-   * Subscribe to this table for real-time "new transaction detected" notifications.
+   * Unified event system for all types of notifications.
+   * Supports typed refs to related entities (transactions, banks, etc.)
+   * 
+   * Event types:
+   * - "transaction.created": New transaction detected
+   * - (future) "sync.completed", "sync.failed", etc.
    */
-  newTransactionEvents: defineTable({
-    // Reference to the transaction
-    txnId: v.id("transactions"),
-    
-    // Reference to the bank
-    bankId: v.id("banks"),
-    
-    // Copy key fields for easy querying without joins
-    bankCode: v.string(),
-    amount: v.number(),
-    description: v.string(),
+  events: defineTable({
+    // Event type (e.g., "transaction.created", "sync.completed")
+    type: v.string(),
     
     // When the event was created
     createdAt: v.number(),
     
-    // Optional: mark as processed/acknowledged
-    acknowledged: v.optional(v.boolean()),
+    // Has this event been acknowledged/processed?
+    acknowledged: v.boolean(),
+    
+    // Typed refs (optional, depending on event type)
+    txnId: v.optional(v.id("transactions")),
+    bankId: v.optional(v.id("banks")),
+    
+    // Convenience fields for transaction-created events (avoids joins for common queries)
+    bankCode: v.optional(v.string()),
+    amount: v.optional(v.number()),
+    description: v.optional(v.string()),
+    
+    // Optional: Additional metadata for the event
+    metadata: v.optional(v.any()),
   })
-    .index("by_createdAt", ["createdAt"])
+    .index("by_type", ["type"])
+    .index("by_acknowledged", ["acknowledged"])
+    .index("by_type_acknowledged", ["type", "acknowledged"])
     .index("by_bankId", ["bankId"])
-    .index("by_acknowledged", ["acknowledged"]),
+    .index("by_createdAt", ["createdAt"]),
 });

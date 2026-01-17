@@ -1,7 +1,7 @@
 /**
  * Convex Mutations for Bank Transaction Ingestion
  * 
- * Provides idempotent transaction insertion with "new transaction" event emission.
+ * Provides idempotent transaction insertion with generic event emission.
  */
 
 import { v } from "convex/values";
@@ -30,6 +30,13 @@ const BANK_DEFAULTS: Record<string, { name: string; color: string }> = {
   banesco: { name: "Banesco", color: "#00529B" },
   bnc: { name: "BNC", color: "#E31837" },
 };
+
+/**
+ * Event types
+ */
+export const EVENT_TYPES = {
+  TRANSACTION_CREATED: "transaction.created",
+} as const;
 
 /**
  * Helper: Get or create a bank by code
@@ -111,8 +118,9 @@ export const ingestTransactions = internalMutation({
         createdAt: now,
       });
 
-      // Create "new transaction detected" event
-      await ctx.db.insert("newTransactionEvents", {
+      // Create "transaction.created" event
+      await ctx.db.insert("events", {
+        type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
         bankCode: tx.bank,
@@ -182,8 +190,57 @@ export const getTransactionsByBank = query({
   },
 });
 
+// ============================================================================
+// Generic Events API
+// ============================================================================
+
 /**
- * Query: Get unacknowledged new transaction events
+ * Query: Get events with optional filtering
+ */
+export const getEvents = query({
+  args: {
+    type: v.optional(v.string()),
+    acknowledged: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { type, acknowledged, limit = 50 }) => {
+    // Filter by type + acknowledged status
+    if (type !== undefined && acknowledged !== undefined) {
+      return await ctx.db
+        .query("events")
+        .withIndex("by_type_acknowledged", (q) =>
+          q.eq("type", type).eq("acknowledged", acknowledged)
+        )
+        .order("desc")
+        .take(limit);
+    }
+
+    // Filter by type only
+    if (type !== undefined) {
+      return await ctx.db
+        .query("events")
+        .withIndex("by_type", (q) => q.eq("type", type))
+        .order("desc")
+        .take(limit);
+    }
+
+    // Filter by acknowledged status only
+    if (acknowledged !== undefined) {
+      return await ctx.db
+        .query("events")
+        .withIndex("by_acknowledged", (q) => q.eq("acknowledged", acknowledged))
+        .order("desc")
+        .take(limit);
+    }
+
+    // No filters - return all events
+    return await ctx.db.query("events").order("desc").take(limit);
+  },
+});
+
+/**
+ * Query: Get unacknowledged events (shorthand for common use case)
+ * Backwards compatible with old getNewTransactionEvents
  */
 export const getNewTransactionEvents = query({
   args: {
@@ -191,19 +248,21 @@ export const getNewTransactionEvents = query({
   },
   handler: async (ctx, { limit = 20 }) => {
     return await ctx.db
-      .query("newTransactionEvents")
-      .withIndex("by_acknowledged", (q) => q.eq("acknowledged", false))
+      .query("events")
+      .withIndex("by_type_acknowledged", (q) =>
+        q.eq("type", EVENT_TYPES.TRANSACTION_CREATED).eq("acknowledged", false)
+      )
       .order("desc")
       .take(limit);
   },
 });
 
 /**
- * Mutation: Acknowledge a new transaction event
+ * Mutation: Acknowledge a single event
  */
 export const acknowledgeEvent = mutation({
   args: {
-    eventId: v.id("newTransactionEvents"),
+    eventId: v.id("events"),
   },
   handler: async (ctx, { eventId }) => {
     await ctx.db.patch(eventId, { acknowledged: true });
@@ -211,15 +270,28 @@ export const acknowledgeEvent = mutation({
 });
 
 /**
- * Mutation: Acknowledge all pending events
+ * Mutation: Acknowledge all pending events (optionally filtered by type)
  */
 export const acknowledgeAllEvents = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const pendingEvents = await ctx.db
-      .query("newTransactionEvents")
-      .withIndex("by_acknowledged", (q) => q.eq("acknowledged", false))
-      .collect();
+  args: {
+    type: v.optional(v.string()),
+  },
+  handler: async (ctx, { type }) => {
+    let pendingEvents;
+
+    if (type !== undefined) {
+      pendingEvents = await ctx.db
+        .query("events")
+        .withIndex("by_type_acknowledged", (q) =>
+          q.eq("type", type).eq("acknowledged", false)
+        )
+        .collect();
+    } else {
+      pendingEvents = await ctx.db
+        .query("events")
+        .withIndex("by_acknowledged", (q) => q.eq("acknowledged", false))
+        .collect();
+    }
 
     for (const event of pendingEvents) {
       await ctx.db.patch(event._id, { acknowledged: true });
@@ -276,7 +348,9 @@ export const ingestFromLocal = mutation({
         createdAt: now,
       });
 
-      await ctx.db.insert("newTransactionEvents", {
+      // Create "transaction.created" event
+      await ctx.db.insert("events", {
+        type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
         bankCode: tx.bank,

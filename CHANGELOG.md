@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-01-17
+
+### ✨ **Added**
+
+#### 🏦 **BNC Local Sync**
+- **New script**: `scripts/bnc-sync.ts` - Sync BNC transactions to Convex (pure HTTP, no browser)
+- **npm command**: `npm run sync:bnc` - Run BNC sync to Convex
+- **npm command**: `npm run sync:banesco` - Alias for Banesco sync
+
+#### 📢 **Generic Events System**
+- **New table**: `events` replaces `newTransactionEvents` in Convex schema
+- **Event types**: `transaction.created` with typed refs (`txnId`, `bankId`)
+- **Flexible queries**: `getEvents({ type?, acknowledged?, limit? })`
+- **Bulk operations**: `acknowledgeAllEvents({ type? })` with optional filtering
+- **Convenience fields**: `bankCode`, `amount`, `description` for easy access
+
+### 🔧 **Changed**
+
+#### 🔑 **BNC Deterministic Transaction IDs**
+- Changed from `bnc-${reference}-${date}` to `bnc-${sha256(stableKey).slice(0,16)}`
+- Stable key includes: `date|amount|reference|description|transactionType|accountName`
+- Ensures reliable Convex `txnKey` deduplication even with missing/duplicate references
+
+#### 📚 **Documentation**
+- Updated `README.md` with "Local Sync to Convex" section
+- Updated `env.example` with `CONVEX_URL` and sync commands
+- Added BNC sync documentation
+
+### ⚠️ **Breaking Changes**
+- Convex schema: `newTransactionEvents` table replaced with `events` table
+- After deploying, clear old `newTransactionEvents` data or reset Convex
+
 ## [2.1.0] - 2024-12-20
 
 ### 🧹 LIMPIEZA MASIVA Y OPTIMIZACIÓN

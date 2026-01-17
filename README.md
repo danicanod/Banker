@@ -230,6 +230,9 @@ BANESCO_SECURITY_QUESTIONS=anime:Naruto,mascota:Firulais
 BNC_ID=V12345678
 BNC_CARD=1234567890123456
 BNC_PASSWORD=your_password
+
+# Convex (for local sync scripts)
+CONVEX_URL=https://your-deployment.convex.cloud
 ```
 
 ## Examples
@@ -249,6 +252,27 @@ npm run example:bnc
 # Performance optimization examples
 npm run example:performance
 ```
+
+## Local Sync to Convex
+
+Sync transactions to a Convex backend with idempotent ingestion:
+
+```bash
+# Sync Banesco transactions
+npm run sync              # or npm run sync:banesco
+
+# Sync BNC transactions (pure HTTP, fast)
+npm run sync:bnc
+```
+
+Features:
+- **Idempotent**: Duplicate transactions are automatically skipped
+- **Deterministic IDs**: Transaction keys are hash-based for collision resistance
+- **Events**: Each new transaction creates a `transaction.created` event for notifications
+
+Requirements:
+- Set `CONVEX_URL` in your `.env` file
+- Run `npx convex dev` to start your Convex backend
 
 ## Architecture
 
