@@ -96,10 +96,11 @@ export const PERFORMANCE_PRESETS = {
 export const BANK_PERFORMANCE_CONFIGS = {
   /**
    * BNC Bank optimized configuration
-   * BNC works well with aggressive blocking since forms are simple
+   * BNC requires AJAX calls for multi-step login. Request interception can
+   * interfere with the form submission flow, so we disable it for auth.
    */
   BNC: {
-    auth: PERFORMANCE_PRESETS.MAXIMUM,      // Login is just forms
+    auth: PERFORMANCE_PRESETS.NONE,         // No blocking - AJAX form submissions are sensitive
     scraping: PERFORMANCE_PRESETS.AGGRESSIVE // Tables might need some JS
   },
 

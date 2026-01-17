@@ -6,9 +6,9 @@
  * of the 3-step authentication process (Card → User ID → Password).
  */
 
-import type { BncCredentials, BncLoginResult, BncAuthConfig } from '../types';
-import { BNC_URLS, BNC_SELECTORS } from '../types';
-import { BaseBankAuth } from '../../../shared/base-bank-auth';
+import type { BncCredentials, BncLoginResult, BncAuthConfig } from '../types/index.js';
+import { BNC_URLS, BNC_SELECTORS } from '../types/index.js';
+import { BaseBankAuth } from '../../../shared/base-bank-auth.js';
 
 export class BncAuth extends BaseBankAuth<BncCredentials, BncAuthConfig, BncLoginResult> {
   constructor(credentials: BncCredentials, config: BncAuthConfig = {}) {
@@ -201,11 +201,12 @@ export class BncAuth extends BaseBankAuth<BncCredentials, BncAuthConfig, BncLogi
       throw new Error('Submit button not ready');
     }
     
-    // Click submit button and wait for navigation
-    await Promise.all([
-      this.page.click(BNC_SELECTORS.SUBMIT_BUTTON),
-      this.page.waitForSelector(BNC_SELECTORS.PASSWORD, { timeout: 20000 })
-    ]);
+    // Click submit button first, then wait for password field
+    // Note: Using sequential await instead of Promise.all because the
+    // AJAX call triggered by click must complete before password appears
+    await this.page.click(BNC_SELECTORS.SUBMIT_BUTTON);
+    await this.page.waitForTimeout(500); // Brief pause for AJAX to start
+    await this.page.waitForSelector(BNC_SELECTORS.PASSWORD, { timeout: 20000 });
     
     this.log('✅ First form submitted successfully');
   }
