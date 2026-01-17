@@ -1,5 +1,5 @@
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import { BrowserConfig } from '../types/index';
+import { BrowserConfig } from '../types/index.js';
 
 export class PersistentBrowserServer {
   private static instance: PersistentBrowserServer | null = null;

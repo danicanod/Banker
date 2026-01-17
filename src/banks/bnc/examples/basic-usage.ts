@@ -5,15 +5,27 @@
  * configurations and scenarios including 3-step authentication and multi-account support.
  */
 
-import { BncAuth } from '../auth/bnc-auth';
-import type { BncCredentials, BncAuthConfig } from '../types';
+import { config } from 'dotenv';
+config(); // Load .env file
 
-// Example credentials (replace with real values)
+import { BncAuth } from '../auth/bnc-auth.js';
+import type { BncCredentials, BncAuthConfig } from '../types/index.js';
+
+// Load credentials from environment
 const exampleCredentials: BncCredentials = {
-  id: process.env.BNC_ID || 'your_cedula',
-  card: process.env.BNC_CARD || 'your_card_number',
-  password: process.env.BNC_PASSWORD || 'your_password'
+  id: process.env.BNC_ID || '',
+  card: process.env.BNC_CARD || '',
+  password: process.env.BNC_PASSWORD || ''
 };
+
+// Validate credentials are present
+if (!exampleCredentials.id || !exampleCredentials.card || !exampleCredentials.password) {
+  console.error('❌ Missing credentials. Set these environment variables in .env:');
+  console.error('   BNC_ID=your_cedula');
+  console.error('   BNC_CARD=your_card_number');
+  console.error('   BNC_PASSWORD=your_password');
+  process.exit(1);
+}
 
 /**
  * Example 1: Basic authentication
@@ -265,7 +277,11 @@ async function runExample(exampleName: string) {
 /**
  * Main execution
  */
-if (require.main === module) {
+// ESM-compatible main check
+const isMain = import.meta.url === `file://${process.argv[1]}` || 
+               import.meta.url.endsWith(process.argv[1]?.replace(/^.*\//, '/') || '');
+
+if (isMain) {
   const exampleName = process.argv[2] || 'basic';
   
   console.log(`

@@ -1,7 +1,7 @@
 import { Page, BrowserContext } from 'playwright';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-import { StrategicLogger } from './strategic-logger';
+import { StrategicLogger } from './strategic-logger.js';
 
 export interface SessionData {
   cookies: any[];

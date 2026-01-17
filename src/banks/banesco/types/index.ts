@@ -9,7 +9,7 @@ import {
   BaseBankCredentials,
   BaseBankScrapingConfig,
   BaseBankScrapingResult
-} from '../../../shared/types';
+} from '../../../shared/types/index.js';
 
 // Re-export base types for convenience
 export type {
@@ -18,7 +18,7 @@ export type {
   LoginResult,
   ScrapingResult,
   BrowserConfig
-} from '../../../shared/types';
+} from '../../../shared/types/index.js';
 
 // Banesco-specific credentials with required security questions - extends base
 export interface BanescCredentials extends BaseBankCredentials {

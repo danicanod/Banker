@@ -6,9 +6,9 @@
  */
 
 import { Page } from 'playwright';
-import type { BncTransaction, BncScrapingConfig, BncScrapingResult } from '../types';
-import { BNC_URLS, BNC_SELECTORS, BncAccountType } from '../types';
-import { BaseBankScraper } from '../../../shared';
+import type { BncTransaction, BncScrapingConfig, BncScrapingResult } from '../types/index.js';
+import { BNC_URLS, BNC_SELECTORS, BncAccountType } from '../types/index.js';
+import { BaseBankScraper } from '../../../shared/index.js';
 
 export class BncTransactionsScraper extends BaseBankScraper<
   BncTransaction,

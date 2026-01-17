@@ -7,8 +7,8 @@
  */
 
 import { Page } from 'playwright';
-import type { BankTransaction, ScrapingResult } from './types';
-import { writeFileSync, appendFileSync, existsSync } from 'fs';
+import type { BankTransaction, ScrapingResult } from './types/index.js';
+import { writeFileSync, appendFileSync, existsSync, readFileSync } from 'fs';
 
 export interface BaseBankScrapingConfig {
   debug?: boolean;         // Default: false
@@ -421,8 +421,7 @@ export abstract class BaseBankScraper<
   getLogContent(): string {
     try {
       if (existsSync(this.logFile)) {
-        const fs = require('fs');
-        return fs.readFileSync(this.logFile, 'utf-8');
+        return readFileSync(this.logFile, 'utf-8');
       }
       return 'Log file not found';
     } catch (error) {

@@ -1,5 +1,5 @@
 import { Frame } from 'playwright';
-import { SecurityQuestionMap } from '../types/index';
+import { SecurityQuestionMap } from '../types/index.js';
 
 export class SecurityQuestionsHandler {
   private questionMap: SecurityQuestionMap;
@@ -12,7 +12,7 @@ export class SecurityQuestionsHandler {
     const questionMap: SecurityQuestionMap = {};
     
     if (!securityQuestions) {
-      console.log('⚠️  No se encontró configuración de preguntas de seguridad');
+      console.log('⚠️  No security questions configuration found');
       return questionMap;
     }
     
@@ -26,7 +26,7 @@ export class SecurityQuestionsHandler {
           .replace(/[\u0300-\u036f]/g, ''); // Remove accents
         
         questionMap[normalizedKeyword] = answer.trim();
-        console.log(`🔑 Mapeado: "${keyword.trim()}" → "${answer.trim()}"`);
+        console.log(`🔑 Mapped: "${keyword.trim()}" → "${answer.trim()}"`);
       }
     }
     
@@ -46,7 +46,7 @@ export class SecurityQuestionsHandler {
     
     for (const [keyword, answer] of Object.entries(this.questionMap)) {
       if (normalizedQuestion.includes(keyword)) {
-        console.log(`✅ Coincidencia encontrada: "${keyword}" en "${questionText}"`);
+        console.log(`✅ Match found: "${keyword}" in "${questionText}"`);
         return answer;
       }
     }
@@ -55,16 +55,16 @@ export class SecurityQuestionsHandler {
   }
 
   async handleSecurityQuestions(frame: any): Promise<boolean> {
-    console.log('🔐 Manejando preguntas de seguridad...');
+    console.log('🔐 Handling security questions...');
     
     if (Object.keys(this.questionMap).length === 0) {
-      console.log('❌ No hay preguntas configuradas');
+      console.log('❌ No questions configured');
       return false;
     }
     
-    console.log(`🗂️  ${Object.keys(this.questionMap).length} mapeos cargados`);
+    console.log(`🗂️  ${Object.keys(this.questionMap).length} mappings loaded`);
     
-    // Buscar específicamente los elementos de preguntas conocidos
+    // Look for known question elements
     const questionElements = [
       { labelId: 'lblPrimeraP', inputId: 'txtPrimeraR' },
       { labelId: 'lblSegundaP', inputId: 'txtSegundaR' },
@@ -76,33 +76,33 @@ export class SecurityQuestionsHandler {
     
     for (const element of questionElements) {
       try {
-        // Verificar si existe el label de la pregunta
+        // Check if the question label exists
         const labelElement = await frame.$(`#${element.labelId}`);
         if (!labelElement) {
           continue;
         }
         
-        // Obtener el texto de la pregunta
+        // Get the question text
         const questionText = await labelElement.textContent();
         if (!questionText) {
           continue;
         }
         
-        console.log(`📋 Pregunta: "${questionText}"`);
+        console.log(`📋 Question: "${questionText}"`);
         
-        // Buscar respuesta para esta pregunta
+        // Look for an answer for this question
         const answer = this.findMatchingAnswer(questionText);
         
         if (answer) {
-          console.log(`🎯 Respuesta: "${answer}"`);
+          console.log(`🎯 Answer: "${answer}"`);
           
-          // Verificar si existe el campo de entrada
+          // Check if the input field exists
           const inputElement = await frame.$(`#${element.inputId}`);
           if (!inputElement) {
             continue;
           }
           
-          // Verificar si el campo está visible y habilitado
+          // Check if the field is visible and enabled
           const isVisible = await inputElement.isVisible();
           const isEnabled = await inputElement.isEnabled();
           
@@ -110,17 +110,17 @@ export class SecurityQuestionsHandler {
             continue;
           }
           
-          // Llenar el campo
+          // Fill the field
           try {
-            console.log(`✏️  Llenando ${element.inputId}: "${answer}"`);
+            console.log(`✏️  Filling ${element.inputId}: "${answer}"`);
             await inputElement.click();
             await inputElement.fill(answer);
             await frame.waitForTimeout(300);
             answersProvided++;
-            console.log(`   ✅ Campo llenado exitosamente`);
+            console.log(`   ✅ Field filled successfully`);
             
           } catch (e) {
-            console.log(`   ❌ Error llenando campo`);
+            console.log(`   ❌ Error filling field`);
           }
         }
         
@@ -129,7 +129,7 @@ export class SecurityQuestionsHandler {
       }
     }
     
-    console.log(`✅ Respuestas proporcionadas: ${answersProvided}`);
+    console.log(`✅ Answers provided: ${answersProvided}`);
     return answersProvided > 0;
   }
 

@@ -5,15 +5,15 @@
  * using the abstract BaseBankAuth class with Banesco-specific implementation
  * of security questions, iframe handling, and modal management.
  */
-import { SecurityQuestionsHandler } from './security-questions';
-import { BaseBankAuth } from '../../../shared/base-bank-auth';
+import { SecurityQuestionsHandler } from './security-questions.js';
+import { BaseBankAuth } from '../../../shared/base-bank-auth.js';
 import { Frame } from 'playwright';
 import {
   BanescoCredentials,
   BanescoLoginResult,
   BanescoAuthConfig,
   BANESCO_URLS
-} from '../types';
+} from '../types/index.js';
 
 export class BanescoAuth extends BaseBankAuth<
   BanescoCredentials, 
@@ -111,8 +111,44 @@ export class BanescoAuth extends BaseBankAuth<
         throw new Error('Could not access iframe content');
       }
 
-      // Wait for frame to be ready
+      // Wait for frame to be ready - use networkidle for dynamic content
       await frame.waitForLoadState('domcontentloaded');
+      
+      // Give extra time for dynamic content to render
+      this.log('⏳ Waiting for iframe content to fully render...');
+      await this.page.waitForTimeout(2000);
+      
+      // Try to wait for the username field specifically inside the frame
+      try {
+        await frame.waitForSelector('#ctl00_cp_ddpControles_txtloginname', { 
+          timeout: 15000,
+          state: 'visible'
+        });
+        this.log('✅ Username field detected in iframe');
+      } catch (fieldError) {
+        // Log what we can see in the frame for debugging
+        const frameContent = await frame.content();
+        const hasForm = frameContent.includes('txtloginname') || frameContent.includes('txtUsuario');
+        this.log(`⚠️ Username field not immediately visible. Form elements in HTML: ${hasForm}`);
+        
+        // Try alternate selectors
+        const alternateSelectors = [
+          'input[type="text"]',
+          'input[name*="login"]',
+          'input[name*="usuario"]',
+          '#txtUsuario'
+        ];
+        
+        for (const sel of alternateSelectors) {
+          try {
+            const el = await frame.$(sel);
+            if (el) {
+              this.log(`✅ Found alternate field with selector: ${sel}`);
+              break;
+            }
+          } catch { /* continue */ }
+        }
+      }
       
       this.log('✅ Login iframe ready');
       return frame;
@@ -125,36 +161,49 @@ export class BanescoAuth extends BaseBankAuth<
 
   /**
    * Perform the login process within the iframe
+   * Banesco has a multi-step flow:
+   * Step 1: Username → Click Aceptar
+   * Step 2: Security questions (if shown) → Click Aceptar  
+   * Step 3: Password → Click Aceptar
    */
   private async performLogin(frame: Frame): Promise<boolean> {
     this.log('🔐 Starting login process...');
 
     try {
-      // Step 1: Enter username
-      this.log('👤 Entering username...');
-      await this.enterUsername(frame);
+      // Step 1: Enter username and submit
+      this.log('👤 Step 1: Entering username...');
+      await this.enterUsernameAndSubmit(frame);
       
-      await this.debugPause('Username entered - ready to check for security questions');
+      await this.debugPause('Username submitted - waiting for next step');
 
-      // Step 2: Check for security questions
-      this.log('❓ Checking for security questions...');
-      const hasSecurityQuestions = await this.checkForSecurityQuestions(frame);
+      // Step 2: Wait for next step and get fresh frame reference
+      this.log('⏳ Waiting for next step to load...');
+      await this.page?.waitForTimeout(3000);
       
-      if (hasSecurityQuestions) {
-        await this.debugPause('Security questions handled - ready to enter password');
-      } else {
-        await this.debugPause('No security questions - ready to enter password');
+      // Re-get the iframe as it may have reloaded
+      const newFrame = await this.getRefreshedFrame();
+      if (!newFrame) {
+        throw new Error('Lost iframe after username submission');
       }
 
-      // Step 3: Enter password
-      this.log('🔑 Entering password...');
-      await this.enterPassword(frame);
+      // Step 3: Check for security questions
+      this.log('❓ Step 2: Checking for security questions...');
+      const hasSecurityQuestions = await this.checkForSecurityQuestions(newFrame);
       
-      await this.debugPause('Password entered - ready to submit form');
+      if (hasSecurityQuestions) {
+        this.log('🔐 Security questions answered, submitting...');
+        await this.clickSubmitButton(newFrame);
+        await this.page?.waitForTimeout(2000);
+      }
 
-      // Step 4: Submit form
-      this.log('🔄 Submitting login form...');
-      await this.submitLoginForm(frame);
+      // Step 4: Get fresh frame and enter password
+      const passwordFrame = await this.getRefreshedFrame();
+      if (!passwordFrame) {
+        throw new Error('Lost iframe before password step');
+      }
+      
+      this.log('🔑 Step 3: Entering password...');
+      await this.enterPasswordAndSubmit(passwordFrame);
 
       this.log('✅ Login form submitted successfully');
       return true;
@@ -166,17 +215,197 @@ export class BanescoAuth extends BaseBankAuth<
   }
 
   /**
-   * Enter username in the iframe
+   * Get a fresh reference to the iframe (it may reload between steps)
    */
-  private async enterUsername(frame: Frame): Promise<void> {
-    const usernameReady = await this.waitForElementReadyOnFrame(frame, '#ctl00_cp_ddpControles_txtloginname');
+  private async getRefreshedFrame(): Promise<Frame | null> {
+    if (!this.page) return null;
     
-    if (!usernameReady) {
-      throw new Error('Username field not ready');
+    try {
+      const iframeElement = await this.page.$(BANESCO_URLS.IFRAME_SELECTOR);
+      if (!iframeElement) return null;
+      
+      const frame = await iframeElement.contentFrame();
+      if (frame) {
+        await frame.waitForLoadState('domcontentloaded').catch(() => {});
+      }
+      return frame;
+    } catch {
+      return null;
     }
+  }
 
-    await frame.fill('#ctl00_cp_ddpControles_txtloginname', this.credentials.username);
-    this.log('✅ Username entered successfully');
+  /**
+   * Enter username and click submit button (Step 1)
+   */
+  private async enterUsernameAndSubmit(frame: Frame): Promise<void> {
+    // Find and fill username
+    const usernameSelectors = [
+      'input[id*="txtUsuario"]',
+      'input[id*="txtloginname"]',
+      '#ctl00_cp_ddpControles_txtloginname',
+      'input[type="text"]'
+    ];
+    
+    this.log('🔍 Looking for username field...');
+    
+    let usernameField = null;
+    for (const selector of usernameSelectors) {
+      try {
+        const element = await frame.$(selector);
+        if (element && await element.isVisible()) {
+          usernameField = element;
+          this.log(`✅ Found username field: ${selector}`);
+          break;
+        }
+      } catch { continue; }
+    }
+    
+    if (!usernameField) {
+      throw new Error('Username field not found');
+    }
+    
+    // Type username quickly
+    await usernameField.fill(this.credentials.username);
+    this.log('✅ Username entered');
+    
+    // Click submit button
+    await this.clickSubmitButton(frame);
+  }
+
+  /**
+   * Enter password and click submit button (Step 3)
+   */
+  private async enterPasswordAndSubmit(frame: Frame): Promise<void> {
+    // Wait for password field to appear
+    await frame.page().waitForTimeout(1500);
+    
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[id*="txtclave"]',
+      'input[id*="txtClave"]',
+      'input[id*="password"]',
+      '#ctl00_cp_ddpControles_txtclave'
+    ];
+    
+    this.log('🔍 Looking for password field...');
+    
+    let passwordField = null;
+    for (const selector of passwordSelectors) {
+      try {
+        const element = await frame.$(selector);
+        if (element && await element.isVisible()) {
+          passwordField = element;
+          this.log(`✅ Found password field: ${selector}`);
+          break;
+        }
+      } catch { continue; }
+    }
+    
+    if (!passwordField) {
+      // Debug what we see
+      const inputs = await frame.$$('input');
+      this.log(`⚠️ No password field found. Visible inputs: ${inputs.length}`);
+      for (const inp of inputs.slice(0, 5)) {
+        const t = await inp.getAttribute('type');
+        const id = await inp.getAttribute('id');
+        this.log(`   - type=${t}, id=${id}`);
+      }
+      
+      // Get page text for debugging
+      const content = await frame.content();
+      const textContent = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 500);
+      this.log(`   📄 Page preview: ${textContent.substring(0, 200)}...`);
+      
+      // Check if this is a confirmation/warning page that needs a click
+      const pageText = textContent.toLowerCase();
+      if (pageText.includes('sesión') || pageText.includes('conexión activa') || pageText.includes('abierta') || pageText.includes('activa')) {
+        this.log('   ⚠️ Detected active session warning, clicking Aceptar to continue...');
+        await this.clickSubmitButton(frame);
+        await frame.page().waitForTimeout(3000);
+        
+        // Re-get the iframe as it may have reloaded
+        const newFrame = await this.getRefreshedFrame();
+        if (newFrame) {
+          // Wait for content to load
+          await newFrame.waitForLoadState('domcontentloaded').catch(() => {});
+          
+          // Try to find password field again after clicking
+          for (const selector of passwordSelectors) {
+            try {
+              const element = await newFrame.$(selector);
+              if (element && await element.isVisible()) {
+                passwordField = element;
+                this.log(`✅ Found password field after warning: ${selector}`);
+                // Update frame reference for subsequent operations
+                Object.assign(frame, newFrame);
+                break;
+              }
+            } catch { continue; }
+          }
+          
+          // If still no password, might need to restart login from security questions
+          if (!passwordField) {
+            this.log('   🔄 Checking for security questions after session warning...');
+            const hasSecurityQuestions = await this.checkForSecurityQuestions(newFrame);
+            if (hasSecurityQuestions) {
+              this.log('   ✅ Security questions found, answers provided');
+              await this.clickSubmitButton(newFrame);
+              await frame.page().waitForTimeout(2000);
+              
+              // One more try for password field
+              const finalFrame = await this.getRefreshedFrame();
+              if (finalFrame) {
+                for (const selector of passwordSelectors) {
+                  try {
+                    const element = await finalFrame.$(selector);
+                    if (element && await element.isVisible()) {
+                      passwordField = element;
+                      this.log(`✅ Found password field after security questions: ${selector}`);
+                      break;
+                    }
+                  } catch { continue; }
+                }
+              }
+            }
+          }
+        }
+      }
+      throw new Error('Password field not found');
+    }
+    
+    // Type password
+    await passwordField.fill(this.credentials.password);
+    this.log('✅ Password entered');
+    
+    // Click submit button
+    await this.clickSubmitButton(frame);
+  }
+
+  /**
+   * Click the submit/Aceptar button
+   */
+  private async clickSubmitButton(frame: Frame): Promise<void> {
+    const submitSelectors = [
+      'input[value="Aceptar"]',
+      'input[id*="btnAcceder"]',
+      '#ctl00_cp_ddpControles_btnAcceder',
+      'input[type="submit"]',
+      'button[type="submit"]'
+    ];
+    
+    for (const selector of submitSelectors) {
+      try {
+        const element = await frame.$(selector);
+        if (element && await element.isVisible()) {
+          this.log(`🔘 Clicking submit: ${selector}`);
+          await element.click();
+          this.log('✅ Submit clicked');
+          return;
+        }
+      } catch { continue; }
+    }
+    
+    throw new Error('Submit button not found');
   }
 
   /**
@@ -184,10 +413,34 @@ export class BanescoAuth extends BaseBankAuth<
    */
   private async checkForSecurityQuestions(frame: Frame): Promise<boolean> {
     try {
-      // Check if security question field exists
-      const securityField = await frame.$('#ctl00_cp_ddpControles_txtpreguntasecreta');
+      // Multiple selectors for security question fields
+      const securitySelectors = [
+        '#ctl00_cp_ddpControles_txtpreguntasecreta',
+        'input[id*="pregunta"]',
+        'input[id*="Pregunta"]',
+        'input[id*="respuesta"]',
+        'input[id*="Respuesta"]',
+        'input[name*="pregunta"]'
+      ];
       
-      if (!securityField) {
+      let securityField = null;
+      for (const selector of securitySelectors) {
+        try {
+          const el = await frame.$(selector);
+          if (el && await el.isVisible()) {
+            securityField = el;
+            this.log(`🔒 Found security field: ${selector}`);
+            break;
+          }
+        } catch { continue; }
+      }
+      
+      // Also check page content for security question text
+      const frameContent = await frame.content();
+      const hasSecurityText = frameContent.toLowerCase().includes('pregunta') && 
+                              frameContent.toLowerCase().includes('seguridad');
+      
+      if (!securityField && !hasSecurityText) {
         this.log('ℹ️  No security questions detected');
         return false;
       }
@@ -201,7 +454,8 @@ export class BanescoAuth extends BaseBankAuth<
         this.log('✅ Security question answered successfully');
         return true;
       } else {
-        throw new Error('Failed to answer security question');
+        this.log('⚠️ Could not answer security question, continuing anyway');
+        return false;
       }
 
     } catch (error) {
@@ -211,40 +465,6 @@ export class BanescoAuth extends BaseBankAuth<
     }
   }
 
-  /**
-   * Enter password in the iframe
-   */
-  private async enterPassword(frame: Frame): Promise<void> {
-    const passwordReady = await this.waitForElementReadyOnFrame(frame, '#ctl00_cp_ddpControles_txtclave');
-    
-    if (!passwordReady) {
-      throw new Error('Password field not ready');
-    }
-
-    // Clear the field first and then type with a small delay
-    await frame.fill('#ctl00_cp_ddpControles_txtclave', '');
-    await frame.type('#ctl00_cp_ddpControles_txtclave', this.credentials.password, { delay: 100 });
-    this.log('✅ Password entered successfully');
-  }
-
-  /**
-   * Submit the login form
-   */
-  private async submitLoginForm(frame: Frame): Promise<void> {
-    const submitReady = await this.waitForElementReadyOnFrame(frame, '#ctl00_cp_ddpControles_btnAcceder');
-    
-    if (!submitReady) {
-      throw new Error('Submit button not ready');
-    }
-
-    // Click the submit button and wait for navigation
-    await Promise.all([
-      frame.click('#ctl00_cp_ddpControles_btnAcceder'),
-      frame.waitForLoadState('domcontentloaded', { timeout: this.config.timeout })
-    ]);
-    
-    this.log('✅ Login form submitted');
-  }
 
   /**
    * Verify if login was successful using Banesco-specific indicators
@@ -255,27 +475,67 @@ export class BanescoAuth extends BaseBankAuth<
     try {
       this.log('🔍 Verifying login success...');
       
-      // Wait a moment for page to load
-      await this.page.waitForTimeout(3000);
+      // Wait longer for page to fully load after final submit
+      await this.page.waitForTimeout(5000);
       
       const currentUrl = this.page.url();
       this.log(`📍 Current URL: ${currentUrl}`);
       
-      // Check for successful login indicators
+      // Check for successful login indicators in URL
       const successUrlPatterns = [
         'default.aspx',
+        'Default.aspx',
         'Principal.aspx',
         'Dashboard',
-        'Home'
+        'Home',
+        'WebSite/Default'
       ];
       
+      const failurePatterns = [
+        'Login.aspx',
+        'login.aspx',
+        'CAU/inicio',
+        'LoginDNA'
+      ];
+      
+      const urlLower = currentUrl.toLowerCase();
+      
+      // Check if URL indicates success
       const urlBasedSuccess = successUrlPatterns.some(pattern => 
-        currentUrl.toLowerCase().includes(pattern.toLowerCase())
+        urlLower.includes(pattern.toLowerCase())
       );
       
-      if (urlBasedSuccess) {
+      // But also check if we're NOT still on a login page
+      const stillOnLogin = failurePatterns.some(pattern =>
+        urlLower.includes(pattern.toLowerCase())
+      );
+      
+      if (urlBasedSuccess && !stillOnLogin) {
         this.log('✅ Login verification successful by URL pattern');
         return true;
+      }
+      
+      // Check page content for authenticated indicators
+      try {
+        const pageContent = await this.page.content();
+        const authenticatedIndicators = [
+          'Cerrar Sesión',
+          'cerrar sesion',
+          'Salir',
+          'Bienvenido',
+          'Mi cuenta',
+          'Saldo disponible',
+          'Consulta de saldos'
+        ];
+        
+        for (const indicator of authenticatedIndicators) {
+          if (pageContent.toLowerCase().includes(indicator.toLowerCase())) {
+            this.log(`✅ Login verified by content indicator: "${indicator}"`);
+            return true;
+          }
+        }
+      } catch (e) {
+        // Continue with other checks
       }
       
       // Check for system availability iframe (Banesco-specific)
@@ -295,14 +555,14 @@ export class BanescoAuth extends BaseBankAuth<
         // Continue with other checks
       }
       
-      // Check if we're no longer on login page
-      const isStillOnLoginPage = await this.page.$(BANESCO_URLS.IFRAME_SELECTOR);
-      if (!isStillOnLoginPage) {
-        this.log('✅ Login verified - no longer on login page');
+      // If URL changed from login page, consider it a success
+      if (!stillOnLogin) {
+        this.log('✅ Login appears successful - no longer on login page');
         return true;
       }
       
       this.log('❌ Login verification failed - still appears to be on login page');
+      this.log(`   URL: ${currentUrl}`);
       return false;
       
     } catch (error) {

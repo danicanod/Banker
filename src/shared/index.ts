@@ -1,8 +1,23 @@
 // Shared base classes and types for all bank implementations
 
 // Base classes
-export { BaseBankAuth } from './base-bank-auth';
-export { BaseBankScraper } from './base-bank-scraper';
+export { BaseBankAuth } from './base-bank-auth.js';
+export { BaseBankScraper } from './base-bank-scraper.js';
+
+// Utilities
+export { NetworkLogger, createNetworkLogger } from './utils/network-logger.js';
+export type { NetworkLogEntry, NetworkLoggerConfig, CapturedRequest, CapturedResponse } from './utils/network-logger.js';
+
+// HTTP Client utilities
+export { 
+  CookieFetch, 
+  createCookieFetch,
+  extractRequestVerificationToken,
+  extractAspNetFields,
+  extractTableData,
+  parseJsonResponse
+} from './utils/http-client.js';
+export type { HttpClientConfig, RequestOptions, FormPostResult } from './utils/http-client.js';
 
 // Base types
 export type {
@@ -11,7 +26,7 @@ export type {
   BaseBankCredentials,
   BaseBankScrapingConfig,
   BaseBankScrapingResult
-} from './types';
+} from './types/index.js';
 
 // Re-export all shared types for convenience
-export * from './types'; 
+export * from './types/index.js'; 

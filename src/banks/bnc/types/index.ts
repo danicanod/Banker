@@ -13,7 +13,7 @@ import {
   BaseBankCredentials,
   BaseBankScrapingConfig,
   BaseBankScrapingResult
-} from '../../../shared/types';
+} from '../../../shared/types/index.js';
 
 // Re-export base types for convenience
 export type {
@@ -22,7 +22,7 @@ export type {
   LoginResult,
   ScrapingResult,
   BrowserConfig
-} from '../../../shared/types';
+} from '../../../shared/types/index.js';
 
 // BNC-specific credentials (3-step authentication) - extends base
 export interface BncCredentials extends BaseBankCredentials {

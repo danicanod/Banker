@@ -1,5 +1,5 @@
 import { Page, Frame, Locator, ElementHandle } from 'playwright';
-import { StrategicLogger } from './strategic-logger';
+import { StrategicLogger } from './strategic-logger.js';
 
 export class SmartWaiter {
   private static logger = StrategicLogger.getInstance().createComponentLogger('SmartWaiter');

@@ -1,10 +1,10 @@
 import { Page, Frame } from 'playwright';
-import { BanescCredentials, LoginResult } from '../types/index';
-import { PersistentBrowserServer } from '../../../shared/utils/browser-server';
-import { SecurityQuestionsHandler } from './security-questions';
-import { StrategicLogger } from '../../../shared/utils/strategic-logger';
-import { SessionManager } from '../../../shared/utils/session-manager';
-import { SmartWaiter } from '../../../shared/utils/smart-waiter';
+import { BanescCredentials, LoginResult } from '../types/index.js';
+import { PersistentBrowserServer } from '../../../shared/utils/browser-server.js';
+import { SecurityQuestionsHandler } from './security-questions.js';
+import { StrategicLogger } from '../../../shared/utils/strategic-logger.js';
+import { SessionManager } from '../../../shared/utils/session-manager.js';
+import { SmartWaiter } from '../../../shared/utils/smart-waiter.js';
 
 export class OptimizedLogin {
   private browserServer: PersistentBrowserServer;

@@ -1,7 +1,17 @@
 /**
  * Banesco Bank Scraper
  * 
- * Complete Playwright-based scraper for Banco Universal Banesco
+ * Complete scraper for Banco Universal Banesco with two modes:
+ * 
+ * 1. Playwright-based (BanescoScraper, BanescoAuth)
+ *    - Full browser automation
+ *    - Handles complex JS interactions
+ *    - More reliable but slower
+ * 
+ * 2. HTTP-based (BanescoHttpClient) 
+ *    - Pure fetch + cheerio
+ *    - No browser required
+ *    - ~10x faster
  * 
  * Features:
  * - Authentication with username, password, and security questions
@@ -11,10 +21,22 @@
  * - Export functionality for transactions and sessions
  */
 
-// Main scraper classes
-export { BanescoScraper, createBanescoScraper, quickScrape } from './scrapers/banesco-scraper';
-export { BanescoAuth } from './auth/banesco-auth';
-export { BanescoTransactionsScraper } from './scrapers/transactions';
+// Main scraper classes (Playwright-based)
+export { BanescoScraper, createBanescoScraper, quickScrape } from './scrapers/banesco-scraper.js';
+export { BanescoAuth } from './auth/banesco-auth.js';
+export { BanescoTransactionsScraper } from './scrapers/transactions.js';
+
+// HTTP client (pure fetch + cheerio, no browser)
+export {
+  BanescoHttpClient,
+  createBanescoHttpClient,
+  quickHttpLogin,
+  type BanescoHttpCredentials,
+  type BanescoHttpConfig,
+  type BanescoHttpLoginResult,
+  type BanescoHttpTransaction,
+  type BanescoHttpScrapingResult
+} from './http/index.js';
 
 // Types and interfaces
 export type {
@@ -29,22 +51,22 @@ export type {
   LoginResult,
   ScrapingResult,
   BrowserConfig
-} from './types';
+} from './types/index.js';
 
 export {
   BANESCO_URLS,
   BANESCO_CONFIG
-} from './types';
+} from './types/index.js';
 
 // Export scraping result interfaces
 export type {
   BanescoScrapingSession
-} from './scrapers/banesco-scraper';
+} from './scrapers/banesco-scraper.js';
 
 export type {
   BanescoScrapingResult
-} from './types';
+} from './types/index.js';
 
 // Default export for convenience
-import { BanescoScraper } from './scrapers/banesco-scraper';
-export default BanescoScraper; 
+import { BanescoScraper } from './scrapers/banesco-scraper.js';
+export default BanescoScraper;

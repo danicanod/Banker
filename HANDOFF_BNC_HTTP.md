@@ -4,6 +4,21 @@
 
 Implemented a pure HTTP-based scraper for BNC (Banco Nacional de Crédito) that allows login and transaction fetching without launching a browser. The implementation is complete but needs testing adjustments.
 
+## Recent Fixes (Jan 17, 2026)
+
+### 1. Fixed `basic-usage.ts` Missing dotenv
+The Playwright example wasn't loading `.env` - it was using placeholder values like `"your_cedula"` instead of real credentials. Fixed by adding:
+```typescript
+import { config } from 'dotenv';
+config();
+```
+
+### 2. Added `logout()` Method to HTTP Client
+HTTP client now has `logout()` method and `logoutFirst` config option (default: true) to clear existing sessions before login.
+
+### 3. Fixed `submitFirstForm` Pattern
+Changed from `Promise.all([click, waitForSelector])` to sequential `await click()` then `await waitForSelector()` for more reliable AJAX handling.
+
 ## What Was Implemented
 
 ### 1. Shared HTTP Utilities (`src/shared/utils/http-client.ts`)
@@ -47,24 +62,33 @@ Implemented a pure HTTP-based scraper for BNC (Banco Nacional de Crédito) that 
 
 3. **Build** - TypeScript compiles successfully
 
-### ⚠️ Issues Found During Testing
+### ⚠️ Known Issues
 
-1. **Session Conflict** - BNC rejects login if there's already an active session:
+1. **Session Conflict** - BNC tracks sessions server-side by user ID (not cookies):
    ```
    "Existe una sesión previa activa, la nueva sesión ha sido denegada"
    ```
-   - This happens when a previous Playwright session wasn't properly closed
-   - Solution: Wait for session timeout (~5-10 minutes) or implement session termination
+   - **Timeout:** Sessions last ~5-10 minutes after last activity
+   - **Workaround:** HTTP client has `logoutFirst: true` by default
+   - **Note:** Playwright and HTTP clients use different cookie contexts, so they can't share sessions or clear each other's sessions
+   - **Best practice:** Wait 5+ minutes between test runs, or use only one client type per session
 
-2. **Transaction Parsing** - The transaction table (`#Tbl_Transactions`) wasn't found:
-   - BNC may use JavaScript/AJAX to populate transactions
-   - The current implementation already tries:
-     - `GET /Accounts/Transactions/Last25` (parse directly if table exists)
-     - `POST /Accounts/Transactions/Last25` with `ddlAccounts=<index>` and (if present) `__RequestVerificationToken`
-     - JSON response fallback (`{ Value | Content: "<html>" }`)
-   - It still needs **network capture confirmation** to match the exact AJAX endpoint + required form fields/headers used by the real UI.
+2. **HTTP Transactions** - Now uses correct endpoint:
+   - **AJAX Endpoint**: `POST /Accounts/Transactions/Last25_List`
+   - **Form Data**: Serialized `#Frm_Accounts` (includes `__RequestVerificationToken`, `ddlAccounts`, etc.)
+   - **Response**: JSON with `Type: 200` and `Value` containing HTML with `#Tbl_Transactions`
+   - **Status**: Updated in HTTP client, needs testing without session conflicts
+   
+   From analysis of BNC's JavaScript files:
+   ```javascript
+   // Last25.js
+   function FillMainData() { List("/Accounts/Transactions/Last25_List", false, false); }
+   
+   // Transactions.js  
+   function List(n,t,i) { $.post(n, $("#Frm_Accounts").serialize(), function(n) { ... }); }
+   ```
 
-3. **basic-usage.ts** - Had `require.main` check incompatible with ESM (fixed but untested)
+3. **Playwright Transactions** - Untested (blocked by session conflicts during testing)
 
 ## Files Modified/Created
 

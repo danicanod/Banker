@@ -5,8 +5,8 @@
  * configurations and scenarios.
  */
 
-import { BanescoAuth } from '../auth/banesco-auth';
-import type { BanescoCredentials, BanescoAuthConfig } from '../types';
+import { BanescoAuth } from '../auth/banesco-auth.js';
+import type { BanescoCredentials, BanescoAuthConfig } from '../types/index.js';
 
 // Example credentials (replace with real values)
 const exampleCredentials: BanescoCredentials = {

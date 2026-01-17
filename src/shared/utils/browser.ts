@@ -1,5 +1,5 @@
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import { BrowserConfig } from '../types/index';
+import { BrowserConfig } from '../types/index.js';
 
 export class BrowserManager {
   private static sharedBrowser: Browser | null = null;

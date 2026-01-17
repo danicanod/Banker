@@ -1,6 +1,6 @@
 import { Page } from 'playwright';
-import { Account, ScrapingResult } from '../types/index';
-import { HTMLSaver } from '../../../shared/utils/html-saver';
+import { Account, ScrapingResult } from '../types/index.js';
+import { HTMLSaver } from '../../../shared/utils/html-saver.js';
 
 export class AccountsScraper {
   private htmlSaver: HTMLSaver;

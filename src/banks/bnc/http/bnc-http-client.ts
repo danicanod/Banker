@@ -84,7 +84,9 @@ const BNC_HTTP_URLS = {
   LOGIN: 'https://personas.bncenlinea.com/Auth/Login_Try',
   LOGOUT: 'https://personas.bncenlinea.com/Auth/LogOut',
   WELCOME: 'https://personas.bncenlinea.com/Home/BNCNETHB/Welcome',
-  TRANSACTIONS: 'https://personas.bncenlinea.com/Accounts/Transactions/Last25'
+  TRANSACTIONS_PAGE: 'https://personas.bncenlinea.com/Accounts/Transactions/Last25',
+  // This is the AJAX endpoint that returns the actual transaction data!
+  TRANSACTIONS_LIST: 'https://personas.bncenlinea.com/Accounts/Transactions/Last25_List'
 };
 
 // ============================================================================
@@ -519,78 +521,117 @@ export class BncHttpClient {
   // ==========================================================================
 
   private async fetchAccountTransactions(accountIndex: number, accountName: string): Promise<BncTransaction[]> {
-    // BNC uses AJAX to load transactions. We need to POST to get the table data.
-    // The endpoint expects a form POST with account selection.
+    // BNC uses AJAX to load transactions via POST to /Accounts/Transactions/Last25_List
+    // The form #Frm_Accounts is serialized and sent
     
-    // First, load the page to get the current token
-    const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS, {
+    // First, load the transactions page to get the CSRF token and form structure
+    const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS_PAGE, {
       'Referer': BNC_HTTP_URLS.WELCOME
     });
 
-    // Check if there's already a transaction table (default account)
-    if (accountIndex === 1) {
-      const transactions = this.parseTransactionsHtml(pageHtml, accountName);
-      if (transactions.length > 0) {
-        return transactions;
-      }
-    }
-
-    // Extract token for the AJAX request
+    // Extract token and form fields from the page
+    const $ = cheerio.load(pageHtml);
     const token = extractRequestVerificationToken(pageHtml);
     
-    // BNC loads transactions via AJAX POST to the same URL
-    // The form data includes the selected account
-    const formData: Record<string, string> = {
-      'ddlAccounts': accountIndex.toString()
-    };
+    if (!token) {
+      this.log(`   ⚠️  No token found on transactions page`);
+    }
     
+    // Log what's on the page for debugging
+    const hasForm = $('#Frm_Accounts').length > 0;
+    const selectDropdown = $('#Frm_Accounts select[name="ddlAccounts"], select#ddlAccounts');
+    const hasDropdown = selectDropdown.length > 0;
+    this.log(`   Page has #Frm_Accounts: ${hasForm}, has select ddlAccounts: ${hasDropdown}`);
+    
+    // Extract all form fields from #Frm_Accounts
+    const formData: Record<string, string> = {};
+    
+    // Add CSRF token from the form (not the one from login)
     if (token) {
       formData['__RequestVerificationToken'] = token;
     }
+    
+    // Extract hidden fields from the form
+    $('#Frm_Accounts input[type="hidden"]').each((_, el) => {
+      const name = $(el).attr('name');
+      const value = $(el).attr('value') || '';
+      if (name && name !== '__RequestVerificationToken') {  // Don't override token
+        formData[name] = value;
+        this.log(`   Hidden field: ${name}=${value.substring(0, 30)}${value.length > 30 ? '...' : ''}`);
+      }
+    });
+    
+    // Get account options from select dropdown if present
+    if (hasDropdown) {
+      const options: string[] = [];
+      selectDropdown.find('option').each((_, el) => {
+        const val = $(el).attr('value');
+        const text = $(el).text().trim();
+        if (val) {
+          options.push(`${val}: ${text}`);
+        }
+      });
+      this.log(`   Account options: ${options.join(', ')}`);
+    }
+    
+    // Set the selected account - use the value from the select options
+    // BNC typically uses account index (1, 2, 3) or account numbers
+    formData['ddlAccounts'] = accountIndex.toString();
+    
+    this.log(`   Sending ${Object.keys(formData).length} form fields with ddlAccounts=${accountIndex}`);
 
-    // Try POST to get filtered transactions
+    // POST to the AJAX endpoint that returns transaction HTML
     try {
-      const result = await this.httpClient.postForm(BNC_HTTP_URLS.TRANSACTIONS, formData, {
-        'Referer': BNC_HTTP_URLS.TRANSACTIONS,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate'
+      const result = await this.httpClient.postForm(BNC_HTTP_URLS.TRANSACTIONS_LIST, formData, {
+        'Referer': BNC_HTTP_URLS.TRANSACTIONS_PAGE,
+        'Accept': '*/*',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin'
       });
       
-      // Check if we got HTML with transactions
-      if (result.html && result.html.includes('Tbl_Transactions')) {
-        return this.parseTransactionsHtml(result.html, accountName);
-      }
+      this.log(`   Got response (${result.html.length} chars): ${result.html.substring(0, 300)}`);
       
-      // Try parsing as JSON response (in case it returns partial HTML)
+      // The response is JSON with Type and Value (HTML content)
       try {
         const jsonResponse = JSON.parse(result.html);
-        if (jsonResponse.Value || jsonResponse.Content) {
-          return this.parseTransactionsHtml(jsonResponse.Value || jsonResponse.Content, accountName);
+        
+        this.log(`   Response Type: ${jsonResponse.Type}, Message: ${jsonResponse.Message || 'none'}`);
+        
+        if (jsonResponse.Type === 200 && jsonResponse.Value) {
+          // Value contains the HTML with the transaction table
+          return this.parseTransactionsHtml(jsonResponse.Value, accountName);
+        } else if (jsonResponse.Type === 300) {
+          // Type 300 = no transactions found (based on Transactions.js code)
+          this.log(`   No transactions found (Type 300)`);
+          return [];
+        } else if (jsonResponse.Type === 350) {
+          // Type 350 = error message (from Transactions.js code)
+          this.log(`   Error response: ${jsonResponse.Value || jsonResponse.Message}`);
+          return [];
+        } else if (jsonResponse.Type === 500) {
+          // Type 500 = server error or invalid request
+          this.log(`   Server error (Type 500): ${jsonResponse.Value || jsonResponse.Message || 'unknown'}`);
+          return [];
+        } else if (jsonResponse.Type === 505) {
+          // Session expired
+          this.log(`   Session expired (Type 505)`);
+          this.isAuthenticated = false;
+          return [];
         }
       } catch {
-        // Not JSON, that's fine
+        // Not JSON - maybe direct HTML?
+        if (result.html.includes('Tbl_Transactions')) {
+          return this.parseTransactionsHtml(result.html, accountName);
+        }
       }
       
-      // Log for debugging
-      this.log(`   Transaction page HTML preview: ${pageHtml.substring(0, 500)}...`);
-      
     } catch (error: any) {
-      this.log(`   POST to transactions failed: ${error.message}`);
+      this.log(`   POST to transactions list failed: ${error.message}`);
     }
 
-    // Try simple GET with query parameter
-    try {
-      const filterUrl = `${BNC_HTTP_URLS.TRANSACTIONS}?ddlAccounts=${accountIndex}`;
-      const filteredHtml = await this.httpClient.getHtml(filterUrl, {
-        'Referer': BNC_HTTP_URLS.TRANSACTIONS
-      });
-      
-      return this.parseTransactionsHtml(filteredHtml, accountName);
-    } catch {
-      // If filtered request fails, return empty
-      return [];
-    }
+    return [];
   }
 
   /**

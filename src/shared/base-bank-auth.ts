@@ -7,15 +7,15 @@
  */
 
 import { Browser, Page, Frame, chromium, BrowserContext } from 'playwright';
-import type { BaseBankAuthConfig, BaseBankLoginResult, BaseBankCredentials } from './types';
-import { writeFileSync, appendFileSync, existsSync } from 'fs';
+import type { BaseBankAuthConfig, BaseBankLoginResult, BaseBankCredentials } from './types/index.js';
+import { writeFileSync, appendFileSync, existsSync, readFileSync } from 'fs';
 import { 
   PerformanceConfig, 
   getBankPerformanceConfig, 
   getBlockedDomains, 
   isEssentialJS,
   PERFORMANCE_PRESETS
-} from './performance-config';
+} from './performance-config.js';
 
 export abstract class BaseBankAuth<
   TCredentials extends BaseBankCredentials,
@@ -502,8 +502,7 @@ export abstract class BaseBankAuth<
   getLogContent(): string {
     try {
       if (existsSync(this.logFile)) {
-        const fs = require('fs');
-        return fs.readFileSync(this.logFile, 'utf-8');
+        return readFileSync(this.logFile, 'utf-8');
       }
       return 'Log file not found';
     } catch (error) {

@@ -46,18 +46,22 @@ Este proyecto maneja credenciales y datos bancarios sensibles. Principios clave 
 
 #### ✅ Lo que SÍ hacemos:
 - Almacenamos credenciales **solo** en variables de entorno
-- Usamos **sesiones de navegador temporales** sin persistencia
 - Implementamos **contextos de navegador aislados** por ejecución
 - **Limpiamos la memoria** de datos sensibles después de su uso
 - **No registramos** credenciales ni información sensible
 - Usamos **solo HTTPS** para todas las comunicaciones bancarias
+- Sesiones opcionales persisten en `.sessions/` con **expiración de 24h** (solo Banesco OptimizedLogin)
 
 #### ❌ Lo que NO hacemos:
 - Almacenar credenciales bancarias en el código o archivos de configuración
-- Persistir cookies de sesión o tokens
 - Registrar información bancaria sensible
-- Compartir credenciales entre ejecuciones
 - Usar conexiones no cifradas
+
+#### ⚠️ Session Persistence (OptimizedLogin)
+- Banesco's `OptimizedLogin` feature can persist session data (cookies, localStorage) to `.sessions/` directory
+- Sessions expire after 24 hours automatically
+- The `.sessions/` directory is gitignored by default
+- You can disable this by not using `OptimizedLogin` or manually clearing `.sessions/`
 
 ### 🛡️ Seguridad del Navegador
 

@@ -6,8 +6,8 @@
  */
 
 import { Page } from 'playwright';
-import type { BanescTransaction, BanescoScrapingConfig, BanescoScrapingResult } from '../types';
-import { BaseBankScraper } from '../../../shared';
+import type { BanescTransaction, BanescoScrapingConfig, BanescoScrapingResult } from '../types/index.js';
+import { BaseBankScraper } from '../../../shared/index.js';
 
 export class BanescoTransactionsScraper extends BaseBankScraper<
   BanescTransaction,

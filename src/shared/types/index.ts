@@ -2,20 +2,17 @@
  * Shared types for banking scrapers
  */
 
-import { PERFORMANCE_PRESETS } from '../performance-config';
+import { PERFORMANCE_PRESETS } from '../performance-config.js';
 
 // Shared types for all bank implementations
-export * from './base';
+export * from './base.js';
 
-// Re-export for backward compatibility and convenience
+// Re-export with aliases for backward compatibility
 export type {
   BankCredentials as BanescCredentials,
   BankAccount as Account,
   BankTransaction as Transaction,
-  LoginResult,
-  ScrapingResult,
-  BrowserConfig
-} from './base';
+} from './base.js';
 
 // Base authentication configuration that all banks should support
 export interface BaseBankAuthConfig {
@@ -67,4 +64,4 @@ export interface BaseBankScrapingResult<T = any> {
   timestamp: Date;
   error?: string;
   metadata?: Record<string, any>;
-} 
+}

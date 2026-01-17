@@ -5,9 +5,9 @@
  * to speed up banking scrapers significantly.
  */
 
-import { BncScraper } from '../../banks/bnc';
-import { BanescoScraper } from '../../banks/banesco';
-import { PERFORMANCE_PRESETS } from '../performance-config';
+import { BncScraper } from '../../banks/bnc/index.js';
+import { BanescoScraper } from '../../banks/banesco/index.js';
+import { PERFORMANCE_PRESETS } from '../performance-config.js';
 
 // Example credentials (use your real ones)
 const bncCredentials = {

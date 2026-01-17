@@ -6,8 +6,9 @@
  */
 
 import { Browser, Page } from 'playwright';
-import { BanescoAuth } from '../auth/banesco-auth';
-import { BanescoTransactionsScraper } from './transactions';
+import { writeFileSync } from 'fs';
+import { BanescoAuth } from '../auth/banesco-auth.js';
+import { BanescoTransactionsScraper } from './transactions.js';
 import type { 
   BanescoCredentials, 
   BanescoAuthConfig, 
@@ -15,7 +16,7 @@ import type {
   BanescoLoginResult, 
   BanescoScrapingResult,
   BanescTransaction 
-} from '../types';
+} from '../types/index.js';
 
 export interface BanescoScrapingSession {
   authResult: BanescoLoginResult;
@@ -193,8 +194,7 @@ export class BanescoScraper {
         }
       };
       
-      const fs = require('fs');
-      fs.writeFileSync(exportFilename, JSON.stringify(exportData, null, 2));
+      writeFileSync(exportFilename, JSON.stringify(exportData, null, 2));
       console.log(`📤 Session exported to: ${exportFilename}`);
       
       return exportFilename;
