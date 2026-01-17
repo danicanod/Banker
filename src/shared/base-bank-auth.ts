@@ -17,6 +17,21 @@ import {
   PERFORMANCE_PRESETS
 } from './performance-config.js';
 
+/**
+ * Aggregated blocked request statistics (to avoid per-request log spam)
+ */
+interface BlockedRequestStats {
+  total: number;
+  byCategory: {
+    tracking: number;
+    css: number;
+    image: number;
+    font: number;
+    media: number;
+    nonEssentialJs: number;
+  };
+}
+
 export abstract class BaseBankAuth<
   TCredentials extends BaseBankCredentials,
   TConfig extends BaseBankAuthConfig,
@@ -31,6 +46,10 @@ export abstract class BaseBankAuth<
   protected logFile: string;
   protected bankName: string;
   protected performanceConfig: PerformanceConfig;
+  
+  /** Aggregated blocked request stats (summary logged once on close) */
+  private blockedStats: BlockedRequestStats = this.createEmptyBlockedStats();
+  private blockedStatsSummaryLogged: boolean = false;
 
   constructor(bankName: string, credentials: TCredentials, config: TConfig) {
     this.bankName = bankName;
@@ -120,6 +139,55 @@ export abstract class BaseBankAuth<
       // Fallback if file writing fails
       console.warn('Failed to write to log file:', error);
     }
+  }
+
+  /**
+   * Create empty blocked request statistics object
+   */
+  private createEmptyBlockedStats(): BlockedRequestStats {
+    return {
+      total: 0,
+      byCategory: {
+        tracking: 0,
+        css: 0,
+        image: 0,
+        font: 0,
+        media: 0,
+        nonEssentialJs: 0
+      }
+    };
+  }
+
+  /**
+   * Reset blocked request statistics (called when initializing new browser)
+   */
+  private resetBlockedStats(): void {
+    this.blockedStats = this.createEmptyBlockedStats();
+    this.blockedStatsSummaryLogged = false;
+  }
+
+  /**
+   * Log the blocked requests summary (called once on close)
+   */
+  private logBlockedStatsSummary(): void {
+    if (this.blockedStatsSummaryLogged || this.blockedStats.total === 0) {
+      return;
+    }
+    
+    this.blockedStatsSummaryLogged = true;
+    
+    const { total, byCategory } = this.blockedStats;
+    const parts: string[] = [];
+    
+    if (byCategory.tracking > 0) parts.push(`tracking=${byCategory.tracking}`);
+    if (byCategory.css > 0) parts.push(`css=${byCategory.css}`);
+    if (byCategory.image > 0) parts.push(`image=${byCategory.image}`);
+    if (byCategory.font > 0) parts.push(`font=${byCategory.font}`);
+    if (byCategory.media > 0) parts.push(`media=${byCategory.media}`);
+    if (byCategory.nonEssentialJs > 0) parts.push(`js=${byCategory.nonEssentialJs}`);
+    
+    const breakdown = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+    this.log(`🧱 Blocked resources: ${total}${breakdown}`);
   }
 
   /**
@@ -264,32 +332,37 @@ export abstract class BaseBankAuth<
       const shouldBlockDomain = blockedDomains.some(domain => url.includes(domain));
       
       if (shouldBlockDomain) {
-        this.log(`🚫 Blocked tracking/ads: ${url.substring(0, 60)}...`);
+        this.blockedStats.total++;
+        this.blockedStats.byCategory.tracking++;
         await route.abort();
         return;
       }
       
       // Block by resource type
       if (this.performanceConfig.blockCSS && resourceType === 'stylesheet') {
-        this.log(`🚫 Blocked CSS: ${url.substring(0, 60)}...`);
+        this.blockedStats.total++;
+        this.blockedStats.byCategory.css++;
         await route.abort();
         return;
       }
       
       if (this.performanceConfig.blockImages && resourceType === 'image') {
-        this.log(`🚫 Blocked image: ${url.substring(0, 60)}...`);
+        this.blockedStats.total++;
+        this.blockedStats.byCategory.image++;
         await route.abort();
         return;
       }
       
       if (this.performanceConfig.blockFonts && resourceType === 'font') {
-        this.log(`🚫 Blocked font: ${url.substring(0, 60)}...`);
+        this.blockedStats.total++;
+        this.blockedStats.byCategory.font++;
         await route.abort();
         return;
       }
       
       if (this.performanceConfig.blockMedia && (resourceType === 'media' || resourceType === 'websocket')) {
-        this.log(`🚫 Blocked media: ${url.substring(0, 60)}...`);
+        this.blockedStats.total++;
+        this.blockedStats.byCategory.media++;
         await route.abort();
         return;
       }
@@ -297,7 +370,8 @@ export abstract class BaseBankAuth<
       // Block non-essential JavaScript using intelligent detection
       if (this.performanceConfig.blockNonEssentialJS && resourceType === 'script') {
         if (!isEssentialJS(url, this.bankName)) {
-          this.log(`🚫 Blocked non-essential JS: ${url.substring(0, 60)}...`);
+          this.blockedStats.total++;
+          this.blockedStats.byCategory.nonEssentialJs++;
           await route.abort();
           return;
         }
@@ -315,6 +389,9 @@ export abstract class BaseBankAuth<
    */
   protected async initializeBrowser(): Promise<void> {
     this.log('🌐 Initializing optimized browser...');
+    
+    // Reset blocked stats for new session
+    this.resetBlockedStats();
     
     const launchArgs = [
       '--no-sandbox',
@@ -530,6 +607,9 @@ export abstract class BaseBankAuth<
    */
   async close(): Promise<void> {
     try {
+      // Log blocked resources summary before closing
+      this.logBlockedStatsSummary();
+      
       if (this.page) {
         await this.page.close();
         this.page = null;

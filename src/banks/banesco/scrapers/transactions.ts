@@ -5,6 +5,7 @@
  * using the BaseBankScraper abstract class with Banesco-specific implementation.
  */
 
+import { createHash } from 'node:crypto';
 import { Page } from 'playwright';
 import type { BanescoTransaction, BanescoScrapingConfig, BanescoScrapingResult } from '../types/index.js';
 import { BaseBankScraper } from '../../../shared/index.js';
@@ -293,8 +294,17 @@ export class BanescoTransactionsScraper extends BaseBankScraper<
         const amount = this.parseAmount(amountString);
         const transactionType = this.determineTransactionType(dcValue);
 
+        // Generate deterministic transaction ID from stable fields
+        const stableKey = [
+          date,
+          String(Math.abs(this.parseAmount(amountString))),
+          (description || 'Transacción').trim(),
+          transactionType,
+        ].join('|');
+        const stableHash = createHash('sha256').update(stableKey).digest('hex').slice(0, 16);
+
         const transaction: BanescoTransaction = {
-          id: `banesco-${date}-${Math.random().toString(36).substr(2, 9)}`,
+          id: `banesco-${stableHash}`,
           date,
           description: description || 'Transacción',
           amount: Math.abs(amount),

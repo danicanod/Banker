@@ -1,0 +1,8 @@
+{
+  "node": {
+    "externalPackages": [
+      "@browserbasehq/sdk",
+      "playwright-core"
+    ]
+  }
+}

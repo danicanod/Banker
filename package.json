@@ -31,6 +31,7 @@
     "example:performance": "tsx src/shared/examples/performance-optimization.ts",
     "capture:banesco": "CAPTURE_BANK=banesco tsx src/shared/examples/capture-network-flow.ts",
     "capture:bnc": "CAPTURE_BANK=bnc tsx src/shared/examples/capture-network-flow.ts",
+    "sync": "tsx scripts/local-sync.ts",
     "postinstall": "npx playwright install chromium"
   },
   "keywords": [
@@ -96,9 +97,12 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@browserbasehq/sdk": "^2.6.0",
     "cheerio": "^1.1.2",
+    "convex": "^1.31.5",
     "dotenv": "^16.5.0",
     "playwright": "^1.49.1",
+    "playwright-core": "^1.57.0",
     "tough-cookie": "^6.0.0"
   }
 }
