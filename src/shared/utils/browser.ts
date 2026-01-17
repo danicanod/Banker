@@ -62,7 +62,7 @@ export class BrowserManager {
         return;
       }
       
-      // Continuar con la request
+      // Continue with the request
       route.continue();
     });
   }
@@ -75,7 +75,7 @@ export class BrowserManager {
 
     console.log('🚀 Iniciando navegador optimizado...');
     
-    // Configuración optimizada para velocidad
+    // Configuration optimized for speed
     const launchOptions = {
       headless: this.config.headless,
       args: [
@@ -195,12 +195,12 @@ export class BrowserManager {
     BrowserManager.instanceCount = 0;
   }
 
-  // Método para verificar si el navegador está activo
+  // Method to check if the browser is active
   static isActive(): boolean {
     return BrowserManager.sharedBrowser !== null && BrowserManager.sharedContext !== null;
   }
 
-  // Método para obtener estadísticas
+  // Method to get statistics
   static getStats(): { browserActive: boolean; instanceCount: number } {
     return {
       browserActive: BrowserManager.isActive(),

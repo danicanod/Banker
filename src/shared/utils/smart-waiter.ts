@@ -241,7 +241,7 @@ export class SmartWaiter {
         description: `${description} element`
       });
 
-      // Obtener el frame content
+      // Get the frame content
       const frame = await iframeElement.contentFrame();
       if (!frame) {
         throw new Error(`Could not access iframe content: ${iframeSelector}`);

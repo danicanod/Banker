@@ -46,7 +46,7 @@ export class PersistentBrowserServer {
   private async setupAdvancedResourceBlocking(context: BrowserContext): Promise<void> {
     console.log('⚡ Configurando bloqueo avanzado de recursos...');
     
-    // Contador para tracking
+    // Counter for tracking
     let blockedResources = 0;
     let allowedResources = 0;
     
@@ -55,7 +55,7 @@ export class PersistentBrowserServer {
       const resourceType = route.request().resourceType();
       const method = route.request().method();
       
-      // Log para análisis
+      // Log for analysis
       const domain = new URL(url).hostname;
       this.requestLogger.set(domain, (this.requestLogger.get(domain) || 0) + 1);
       
@@ -112,7 +112,7 @@ export class PersistentBrowserServer {
         url.includes('.doc') ||
         url.includes('.xls') ||
         
-        // Requests de terceros no bancarios
+        // Non-bank third-party requests
         (!url.includes('banesconline.com') && 
          !url.includes('banesco.com') &&
          (resourceType === 'script' || resourceType === 'stylesheet'));
@@ -148,13 +148,13 @@ export class PersistentBrowserServer {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         
-        // Optimizaciones de renderizado
+        // Rendering optimizations
         '--disable-accelerated-2d-canvas',
         '--disable-gpu',
         '--disable-gpu-sandbox',
         '--disable-software-rasterizer',
         
-        // Optimizaciones de red
+        // Network optimizations
         '--disable-background-networking',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
@@ -173,12 +173,12 @@ export class PersistentBrowserServer {
         '--disable-sync',
         '--disable-background-mode',
         
-        // Optimizaciones de memoria
+        // Memory optimizations
         '--memory-pressure-off',
         '--max_old_space_size=4096',
         '--js-flags="--max-old-space-size=4096"',
         
-        // Optimizaciones de red adicionales
+        // Additional network optimizations
         '--aggressive-cache-discard',
         '--disable-background-networking',
         '--disable-features=AudioServiceOutOfProcess',
@@ -277,7 +277,7 @@ export class PersistentBrowserServer {
     PersistentBrowserServer.instance = null;
   }
 
-  // Métodos de análisis
+  // Analysis methods
   getRequestStats(): { domain: string; requests: number }[] {
     return Array.from(this.requestLogger.entries())
       .map(([domain, requests]) => ({ domain, requests }))
@@ -313,7 +313,7 @@ export class PersistentBrowserServer {
       });
   }
 
-  // Status del servidor
+  // Server status
   getStatus(): {
     isActive: boolean;
     lastUsed: Date;
@@ -328,7 +328,7 @@ export class PersistentBrowserServer {
     };
   }
 
-  // Restart del navegador para liberar memoria
+  // Restart browser to free memory
   async restart(): Promise<void> {
     console.log('🔄 Reiniciando navegador persistente...');
     await this.close();

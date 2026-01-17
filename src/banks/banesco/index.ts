@@ -1,36 +1,38 @@
 /**
  * Banesco Bank Scraper
  * 
- * Complete scraper for Banco Universal Banesco with two modes:
+ * Complete scraper for Banco Universal Banesco using a HYBRID approach:
  * 
- * 1. Playwright-based (BanescoScraper, BanescoAuth)
- *    - Full browser automation
- *    - Handles complex JS interactions
- *    - More reliable but slower
+ * 1. Playwright-based authentication (BanescoScraper, BanescoAuth)
+ *    - REQUIRED for login (handles JS, iframes, security questions)
+ *    - Establishes session cookies via JavaScript execution
  * 
- * 2. HTTP-based (BanescoHttpClient) 
- *    - Pure fetch + cheerio
- *    - No browser required
- *    - ~10x faster
+ * 2. HTTP-based data fetching (BanescoHttpClient)
+ *    - Uses cookies from Playwright session
+ *    - ~10x faster for accounts/transactions after login
  * 
- * Features:
- * - Authentication with username, password, and security questions
- * - Transaction scraping with flexible table analysis
- * - Comprehensive logging and debugging
- * - Session management and error handling
- * - Export functionality for transactions and sessions
+ * NOTE: Pure HTTP login is NOT supported for Banesco. The site uses
+ * JavaScript-based session establishment that cannot be replicated
+ * with fetch alone. Always use Playwright for authentication.
+ * 
+ * Recommended flow:
+ *   1. Login with BanescoAuth (Playwright)
+ *   2. Export cookies from Playwright context
+ *   3. Import cookies to BanescoHttpClient
+ *   4. Use HTTP client for fast data fetching
+ * 
+ * See: npm run example:banesco-hybrid
  */
 
-// Main scraper classes (Playwright-based)
+// Main scraper classes (Playwright-based - REQUIRED for authentication)
 export { BanescoScraper, createBanescoScraper, quickScrape } from './scrapers/banesco-scraper.js';
 export { BanescoAuth } from './auth/banesco-auth.js';
 export { BanescoTransactionsScraper } from './scrapers/transactions.js';
 
-// HTTP client (pure fetch + cheerio, no browser)
+// HTTP client (for fast data fetching AFTER Playwright authentication)
 export {
   BanescoHttpClient,
   createBanescoHttpClient,
-  quickHttpLogin,
   type BanescoHttpCredentials,
   type BanescoHttpConfig,
   type BanescoHttpLoginResult,
@@ -44,8 +46,8 @@ export type {
   BanescoLoginResult,
   BanescoAuthConfig,
   BanescoScrapingConfig,
-  BanescAccount,
-  BanescTransaction,
+  BanescoAccount,
+  BanescoTransaction,
   Account,
   Transaction,
   LoginResult,

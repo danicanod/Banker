@@ -1,5 +1,5 @@
 import { Page, Frame } from 'playwright';
-import { BanescCredentials, LoginResult } from '../types/index.js';
+import { BanescoCredentials, LoginResult } from '../types/index.js';
 import { PersistentBrowserServer } from '../../../shared/utils/browser-server.js';
 import { SecurityQuestionsHandler } from './security-questions.js';
 import { StrategicLogger } from '../../../shared/utils/strategic-logger.js';
@@ -9,13 +9,13 @@ import { SmartWaiter } from '../../../shared/utils/smart-waiter.js';
 export class OptimizedLogin {
   private browserServer: PersistentBrowserServer;
   private securityHandler: SecurityQuestionsHandler;
-  private credentials: BanescCredentials;
+  private credentials: BanescoCredentials;
   private authenticatedPage: Page | null = null;
   private isLoggedIn: boolean = false;
   private logger = StrategicLogger.getInstance().createComponentLogger('OptimizedLogin');
   private sessionManager = SessionManager.getInstance();
 
-  constructor(credentials: BanescCredentials, headless: boolean = false) {
+  constructor(credentials: BanescoCredentials, headless: boolean = false) {
     this.credentials = credentials;
     this.browserServer = PersistentBrowserServer.getInstance({ headless });
     this.securityHandler = new SecurityQuestionsHandler(credentials.securityQuestions);
@@ -48,7 +48,7 @@ export class OptimizedLogin {
       await this.browserServer.start();
       const page = await this.browserServer.newPage();
 
-      // Configurar contexto para mantener cookies como navegador normal
+      // Configure context to maintain cookies like a normal browser
       await this.setupBrowserContext(page);
 
       const loginSuccess = await this.performOptimizedLogin(page);

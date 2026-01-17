@@ -15,7 +15,7 @@ import type {
   BanescoScrapingConfig, 
   BanescoLoginResult, 
   BanescoScrapingResult,
-  BanescTransaction 
+  BanescoTransaction 
 } from '../types/index.js';
 
 export interface BanescoScrapingSession {
@@ -244,14 +244,14 @@ export function createBanescoScraper(
 export async function quickScrape(
   credentials: BanescoCredentials,
   config?: Partial<BanescoFullScrapingConfig>
-): Promise<BanescTransaction[]> {
+): Promise<BanescoTransaction[]> {
   const scraper = createBanescoScraper(credentials, config);
   
   try {
     const session = await scraper.scrapeAll();
     
     // Combine all transactions from all results
-    const allTransactions: BanescTransaction[] = [];
+    const allTransactions: BanescoTransaction[] = [];
     session.transactionResults.forEach(result => {
       if (result.data) {
         allTransactions.push(...result.data);

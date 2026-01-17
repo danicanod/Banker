@@ -11,7 +11,7 @@ Built on the new abstract base class system for maximum code reuse and consisten
 export class BanescoAuth extends BaseBankAuth<BanescoCredentials, BanescoAuthConfig, BanescoLoginResult>
 
 // Extends base scraper class  
-export class BanescoTransactionsScraper extends BaseBankScraper<BanescTransaction, BanescoScrapingConfig, BanescoScrapingResult>
+export class BanescoTransactionsScraper extends BaseBankScraper<BanescoTransaction, BanescoScrapingConfig, BanescoScrapingResult>
 
 // Unified main scraper API
 export class BanescoScraper
@@ -219,7 +219,7 @@ class BanescoScraper {
 async function quickScrape(
   credentials: BanescoCredentials, 
   config?: BanescoScrapingConfig
-): Promise<BanescTransaction[]>
+): Promise<BanescoTransaction[]>
 
 // Scraper factory
 function createBanescoScraper(
@@ -247,7 +247,7 @@ From `BaseBankScraper`:
 ```typescript
 // Template method pattern  
 abstract async scrapeTransactions(): Promise<BanescoScrapingResult>
-abstract parseTransactionData(rawData: any[]): BanescTransaction[]
+abstract parseTransactionData(rawData: any[]): BanescoTransaction[]
 
 // Common utilities
 protected async waitForTableLoad(): Promise<void>
@@ -406,11 +406,9 @@ const scraper = new BanescoScraper(credentials, { debug: true });
 
 ## 📚 Documentation
 
-- 📖 **[Base Class Architecture](../../../BASE_CLASS_SUMMARY.md)** - Complete architecture overview
-- 🏦 **[BNC README](../bnc/README.md)** - Sister implementation  
-- 🔧 **[CLI Guide](../../../CLI.md)** - Command line interface
-- ⚡ **[Smart Waits](../../../SMART_WAITS_EXAMPLE.md)** - Performance examples
+- 🏦 **[BNC README](../bnc/README.md)** - Sister implementation (HTTP-only)
+- 📖 **[Main README](../../../README.md)** - Full library documentation
 
 ---
 
-**Part of the Banker Venezuela enterprise banking system with abstract base class architecture.** 
+**Part of the Banker Venezuela banking automation library.** 

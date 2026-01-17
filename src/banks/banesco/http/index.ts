@@ -1,21 +1,30 @@
 /**
  * Banesco HTTP Client Module
  * 
- * Pure HTTP-based Banesco client using fetch + cheerio.
- * No browser automation required - ~10x faster than Playwright.
+ * HTTP-based Banesco client for fast data fetching (accounts, movements).
+ * 
+ * IMPORTANT: This client requires authentication cookies from Playwright.
+ * Pure HTTP login is NOT supported for Banesco due to JavaScript-based
+ * session establishment. Use the hybrid approach:
+ * 
+ * 1. Login with Playwright (BanescoAuth)
+ * 2. Export cookies from Playwright context
+ * 3. Import cookies to BanescoHttpClient
+ * 4. Use HTTP client for fast data fetching (~10x faster than Playwright)
+ * 
+ * See: npm run example:banesco-hybrid
  */
 
 // Main client
 export {
   BanescoHttpClient,
   createBanescoHttpClient,
-  quickHttpLogin,
   type BanescoHttpCredentials,
   type BanescoHttpConfig,
   type BanescoHttpLoginResult,
   type BanescoHttpTransaction,
   type BanescoHttpScrapingResult,
-  type BanescoAccount,
+  type BanescoHttpAccount,
   type BanescoAccountsResult,
   type BanescoMovementsResult
 } from './banesco-http-client.js';

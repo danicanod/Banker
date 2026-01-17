@@ -6,11 +6,11 @@
  */
 
 import { Page } from 'playwright';
-import type { BanescTransaction, BanescoScrapingConfig, BanescoScrapingResult } from '../types/index.js';
+import type { BanescoTransaction, BanescoScrapingConfig, BanescoScrapingResult } from '../types/index.js';
 import { BaseBankScraper } from '../../../shared/index.js';
 
 export class BanescoTransactionsScraper extends BaseBankScraper<
-  BanescTransaction,
+  BanescoTransaction,
   BanescoScrapingConfig,
   BanescoScrapingResult
 > {
@@ -244,8 +244,8 @@ export class BanescoTransactionsScraper extends BaseBankScraper<
   /**
    * Extract transactions from analyzed tables
    */
-  private async extractTransactionsFromTables(tableAnalysis: any): Promise<BanescTransaction[]> {
-    const allTransactions: BanescTransaction[] = [];
+  private async extractTransactionsFromTables(tableAnalysis: any): Promise<BanescoTransaction[]> {
+    const allTransactions: BanescoTransaction[] = [];
 
     for (const table of tableAnalysis.tables) {
       if (!table.containsTransactionData) continue;
@@ -274,8 +274,8 @@ export class BanescoTransactionsScraper extends BaseBankScraper<
   /**
    * Parse raw transaction data into Banesco transactions
    */
-  protected parseTransactionData(rawData: string[][]): BanescTransaction[] {
-    const transactions: BanescTransaction[] = [];
+  protected parseTransactionData(rawData: string[][]): BanescoTransaction[] {
+    const transactions: BanescoTransaction[] = [];
 
     for (const row of rawData) {
       if (row.length < 3) continue; // Skip incomplete rows
@@ -293,7 +293,7 @@ export class BanescoTransactionsScraper extends BaseBankScraper<
         const amount = this.parseAmount(amountString);
         const transactionType = this.determineTransactionType(dcValue);
 
-        const transaction: BanescTransaction = {
+        const transaction: BanescoTransaction = {
           id: `banesco-${date}-${Math.random().toString(36).substr(2, 9)}`,
           date,
           description: description || 'Transacción',

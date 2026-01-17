@@ -38,7 +38,7 @@ export class StrategicLogger {
   private performanceMetrics: Map<string, PerformanceMetrics> = new Map();
   private fitnessThresholds: Map<string, number> = new Map();
   
-  // Colores para terminal
+  // Terminal colors
   private colors = {
     reset: '\x1b[0m',
     bright: '\x1b[1m',
@@ -51,7 +51,7 @@ export class StrategicLogger {
     gray: '\x1b[90m'
   };
 
-  // Emojis para diferentes tipos de log
+  // Emojis for different log types
   private emojis = {
     error: '❌',
     warn: '⚠️',
@@ -143,7 +143,7 @@ export class StrategicLogger {
     return level <= this.logLevel;
   }
 
-  // Métodos de logging públicos
+  // Public logging methods
   public error(component: string, message: string, error?: Error | any): void {
     if (!this.shouldLog(LogLevel.ERROR)) return;
     
@@ -206,7 +206,7 @@ export class StrategicLogger {
     console.log(this.formatMessage('debug', this.emojis.data, component, message, data));
   }
 
-  // Métodos de performance y fitness functions
+  // Performance and fitness function methods
   public startOperation(operationName: string): string {
     const operationId = `${operationName}_${Date.now()}`;
     const metrics: PerformanceMetrics = {
@@ -291,7 +291,7 @@ export class StrategicLogger {
     });
   }
 
-  // Métodos de configuración
+  // Configuration methods
   public setLogLevel(level: LogLevel): void {
     this.logLevel = level;
     this.info('Logger', `Log level set to: ${LogLevel[level]}`);
@@ -307,7 +307,7 @@ export class StrategicLogger {
     return { level: this.logLevel, context: this.context };
   }
 
-  // Método para crear loggers específicos de componente
+  // Method to create component-specific loggers
   public createComponentLogger(componentName: string) {
     return {
       error: (message: string, error?: Error | any) => this.error(componentName, message, error),
@@ -325,7 +325,7 @@ export class StrategicLogger {
     };
   }
 
-  // Método para generar reporte de sesión
+  // Method to generate session report
   public generateSessionReport(): void {
     if (!this.shouldLog(LogLevel.INFO)) return;
 

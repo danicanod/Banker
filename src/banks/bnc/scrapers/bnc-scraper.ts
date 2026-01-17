@@ -1,220 +1,112 @@
 /**
- * BNC Main Scraper with HTTP and Playwright Support
+ * BNC Main Scraper (HTTP-Only)
  * 
- * This module provides the main scraping functionality for BNC online banking,
- * integrating authentication and transaction extraction in a unified interface.
+ * This module provides the main scraping functionality for BNC online banking
+ * using pure HTTP requests. No browser automation is required.
  * 
  * Features:
- * - HTTP-first mode: Uses pure HTTP requests for faster scraping (no browser needed)
- * - Playwright fallback: Falls back to browser automation if HTTP fails
- * - Configurable via environment variable or config option
+ * - Pure HTTP-based authentication and transaction fetching
+ * - ~8-10x faster than browser-based scraping
+ * - No Playwright/browser dependency for BNC
  */
 
-import { Browser, Page, chromium } from 'playwright';
 import { writeFileSync } from 'fs';
-import { BncAuth } from '../auth/bnc-auth.js';
-import { BncTransactionsScraper } from './transactions.js';
 import { BncHttpClient, createBncHttpClient } from '../http/bnc-http-client.js';
 import type { 
   BncCredentials, 
-  BncAuthConfig, 
-  BncScrapingConfig, 
-  BncLoginResult, 
   BncScrapingResult,
   BncTransaction 
 } from '../types/index.js';
 
 export interface BncScrapingSession {
-  authResult: BncLoginResult;
+  authResult: {
+    success: boolean;
+    message: string;
+    sessionValid: boolean;
+    error?: string;
+  };
   transactionResults: BncScrapingResult[];
-  browser?: Browser;
-  page?: Page;
-  /** Indicates which method was used */
-  method?: 'http' | 'playwright';
+  /** Always 'http' for BNC */
+  method: 'http';
 }
 
-export interface BncFullScrapingConfig extends BncAuthConfig, BncScrapingConfig {
-  authenticateFirst?: boolean;  // Default: true
-  closeAfterScraping?: boolean; // Default: true
+export interface BncFullScrapingConfig {
+  /** Request timeout in ms (default: 30000) */
+  timeout?: number;
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+  /** Close/reset client after scraping (default: true) */
+  closeAfterScraping?: boolean;
   /** 
-   * Force Playwright mode even when HTTP would work.
-   * Can also be set via BNC_FORCE_PLAYWRIGHT=true environment variable.
-   * Default: false (prefers HTTP)
+   * Attempt to logout before login to clear any existing session.
+   * Useful when BNC reports "session already active" errors.
+   * Default: true
    */
-  forcePlaywright?: boolean;
-  /**
-   * Disable HTTP fallback to Playwright if HTTP fails.
-   * Default: false (fallback enabled)
-   */
-  disableFallback?: boolean;
+  logoutFirst?: boolean;
 }
 
 export class BncScraper {
   private credentials: BncCredentials;
-  private config: BncFullScrapingConfig;
-  private auth?: BncAuth;
-  private browser?: Browser;
-  private page?: Page;
+  private config: Required<BncFullScrapingConfig>;
   private httpClient?: BncHttpClient;
-  private usedMethod?: 'http' | 'playwright';
 
   constructor(credentials: BncCredentials, config: BncFullScrapingConfig = {}) {
     this.credentials = credentials;
     this.config = {
-      authenticateFirst: true,
-      closeAfterScraping: true,
-      forcePlaywright: process.env.BNC_FORCE_PLAYWRIGHT === 'true',
-      disableFallback: false,
-      ...config
+      timeout: config.timeout ?? 30000,
+      debug: config.debug ?? false,
+      closeAfterScraping: config.closeAfterScraping ?? true,
+      logoutFirst: config.logoutFirst ?? true
     };
   }
 
   /**
-   * Check if HTTP mode should be used
-   */
-  private shouldUseHttp(): boolean {
-    return !this.config.forcePlaywright;
-  }
-
-  /**
    * Perform complete scraping: authentication + transactions
-   * Prefers HTTP mode, falls back to Playwright if needed
+   * Uses pure HTTP (no browser needed)
    */
   async scrapeAll(): Promise<BncScrapingSession> {
-    console.log('🚀 Starting BNC complete scraping session...');
+    console.log('🚀 Starting BNC HTTP scraping session...');
     
-    // Try HTTP mode first (unless force Playwright)
-    if (this.shouldUseHttp()) {
-      console.log('⚡ Attempting HTTP mode (faster, no browser)...');
-      
-      try {
-        const httpSession = await this.scrapeAllHttp();
-        
-        if (httpSession.authResult.success && httpSession.transactionResults.length > 0) {
-          const totalTransactions = httpSession.transactionResults.reduce(
-            (sum, r) => sum + (r.data?.length || 0), 0
-          );
-          
-          if (totalTransactions > 0 || !this.config.disableFallback === false) {
-            console.log(`🎉 HTTP mode successful: ${totalTransactions} transactions`);
-            return httpSession;
-          }
-        }
-        
-        // HTTP mode failed or no transactions, try fallback
-        if (!this.config.disableFallback) {
-          console.log('⚠️  HTTP mode incomplete, falling back to Playwright...');
-        } else {
-          console.log('⚠️  HTTP mode incomplete, fallback disabled');
-          return httpSession;
-        }
-        
-      } catch (error: any) {
-        console.log(`⚠️  HTTP mode failed: ${error.message}`);
-        
-        if (this.config.disableFallback) {
-          return {
-            authResult: { 
-              success: false, 
-              message: `HTTP failed: ${error.message}`, 
-              sessionValid: false,
-              error: error.message
-            },
-            transactionResults: [],
-            method: 'http'
-          };
-        }
-        
-        console.log('🔄 Falling back to Playwright mode...');
-      }
-    }
-    
-    // Use Playwright mode
-    return this.scrapeAllPlaywright();
-  }
-
-  /**
-   * HTTP-based scraping (faster, no browser)
-   */
-  private async scrapeAllHttp(): Promise<BncScrapingSession> {
     const session: BncScrapingSession = {
       authResult: { success: false, message: '', sessionValid: false },
       transactionResults: [],
       method: 'http'
     };
 
-    this.httpClient = createBncHttpClient(this.credentials, {
-      timeout: this.config.timeout,
-      debug: this.config.debug
-    });
-
-    // Login via HTTP
-    const loginResult = await this.httpClient.login();
-    
-    session.authResult = {
-      success: loginResult.success,
-      message: loginResult.message,
-      sessionValid: loginResult.authenticated,
-      error: loginResult.error
-    };
-
-    if (!loginResult.success) {
-      return session;
-    }
-
-    // Fetch transactions via HTTP
-    const transactionResult = await this.httpClient.fetchLast25Transactions();
-    session.transactionResults.push(transactionResult);
-
-    this.usedMethod = 'http';
-    console.log(`✅ HTTP mode completed: ${transactionResult.data?.length || 0} transactions`);
-
-    return session;
-  }
-
-  /**
-   * Playwright-based scraping (original method)
-   */
-  private async scrapeAllPlaywright(): Promise<BncScrapingSession> {
-    console.log('🎭 Using Playwright mode (browser automation)...');
-    
-    const session: BncScrapingSession = {
-      authResult: { success: false, message: '', sessionValid: false },
-      transactionResults: [],
-      method: 'playwright'
-    };
-
     try {
-      // Step 1: Authentication (if enabled)
-      if (this.config.authenticateFirst) {
-        console.log('🔐 Starting authentication...');
-        session.authResult = await this.authenticate();
-        
-        if (!session.authResult.success) {
-          throw new Error(`Authentication failed: ${session.authResult.message}`);
-        }
-        
-        console.log('✅ Authentication successful');
+      this.httpClient = createBncHttpClient(this.credentials, {
+        timeout: this.config.timeout,
+        debug: this.config.debug,
+        logoutFirst: this.config.logoutFirst
+      });
+
+      // Login via HTTP
+      console.log('🔐 Authenticating via HTTP...');
+      const loginResult = await this.httpClient.login();
+      
+      session.authResult = {
+        success: loginResult.success,
+        message: loginResult.message,
+        sessionValid: loginResult.authenticated,
+        error: loginResult.error
+      };
+
+      if (!loginResult.success) {
+        console.log(`❌ Authentication failed: ${loginResult.error || loginResult.message}`);
+        return session;
       }
 
-      // Step 2: Transaction scraping
-      if (this.page && session.authResult.success) {
-        console.log('📊 Starting transaction scraping...');
-        
-        const transactionScraper = new BncTransactionsScraper(this.page, this.config);
-        const transactionResult = await transactionScraper.scrapeTransactions();
-        
-        session.transactionResults.push(transactionResult);
-        
-        console.log(`✅ Transaction scraping completed: ${transactionResult.data?.length || 0} transactions`);
-      }
+      console.log('✅ Authentication successful');
 
-      // Store browser and page references
-      session.browser = this.browser;
-      session.page = this.page;
-      this.usedMethod = 'playwright';
+      // Fetch transactions via HTTP
+      console.log('📊 Fetching transactions...');
+      const transactionResult = await this.httpClient.fetchLast25Transactions();
+      session.transactionResults.push(transactionResult);
 
-      // Clean up if configured
+      const totalTransactions = transactionResult.data?.length || 0;
+      console.log(`✅ Fetched ${totalTransactions} transactions`);
+
+      // Cleanup if configured
       if (this.config.closeAfterScraping) {
         await this.close();
         console.log('🧹 Session cleaned up');
@@ -229,7 +121,6 @@ export class BncScraper {
       // Ensure cleanup on error
       await this.close();
       
-      // Update session with error
       session.authResult = {
         success: false,
         message: error.message,
@@ -242,83 +133,17 @@ export class BncScraper {
   }
 
   /**
-   * Authenticate with BNC
-   */
-  async authenticate(): Promise<BncLoginResult> {
-    try {
-      this.auth = new BncAuth(this.credentials, this.config);
-      const result = await this.auth.login();
-      
-      if (result.success) {
-        this.page = this.auth.getPage() || undefined;
-        // Store browser reference (access private property through type assertion)
-        this.browser = (this.auth as any).browser;
-      }
-      
-      return result;
-      
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message,
-        sessionValid: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Scrape transactions only (requires existing authentication)
-   */
-  async scrapeTransactions(): Promise<BncScrapingResult> {
-    if (!this.page) {
-      throw new Error('No authenticated page available. Call authenticate() first.');
-    }
-
-    const scraper = new BncTransactionsScraper(this.page, this.config);
-    return await scraper.scrapeTransactions();
-  }
-
-  /**
-   * Get current authenticated page
-   */
-  getPage(): Page | null {
-    return this.page || null;
-  }
-
-  /**
-   * Get current browser instance
-   */
-  getBrowser(): Browser | null {
-    return this.browser || null;
-  }
-
-  /**
    * Check if authenticated
    */
   isAuthenticated(): boolean {
-    return this.auth?.isLoggedIn() || this.httpClient?.isLoggedIn() || false;
+    return this.httpClient?.isLoggedIn() || false;
   }
 
   /**
-   * Get the method used for the last scraping session
+   * Get the method used (always 'http' for BNC)
    */
-  getUsedMethod(): 'http' | 'playwright' | undefined {
-    return this.usedMethod;
-  }
-
-  /**
-   * Scrape using HTTP-only mode (no Playwright fallback)
-   */
-  async scrapeHttpOnly(): Promise<BncScrapingSession> {
-    return this.scrapeAllHttp();
-  }
-
-  /**
-   * Scrape using Playwright-only mode (no HTTP attempt)
-   */
-  async scrapePlaywrightOnly(): Promise<BncScrapingSession> {
-    return this.scrapeAllPlaywright();
+  getUsedMethod(): 'http' {
+    return 'http';
   }
 
   /**
@@ -330,10 +155,10 @@ export class BncScraper {
       const defaultFilename = `bnc-session-${timestamp}.json`;
       const exportFilename = filename || defaultFilename;
       
-      // Prepare export data (exclude browser/page references)
       const exportData = {
         bank: 'BNC',
         exported: new Date().toISOString(),
+        method: 'http',
         session: {
           authResult: session.authResult,
           transactionResults: session.transactionResults,
@@ -355,27 +180,14 @@ export class BncScraper {
   }
 
   /**
-   * Close browser and cleanup resources
+   * Close and cleanup resources
    */
   async close(): Promise<void> {
     try {
-      if (this.auth) {
-        await this.auth.close();
-      }
-      
-      if (this.browser) {
-        await this.browser.close();
-      }
-      
       if (this.httpClient) {
         await this.httpClient.reset();
+        this.httpClient = undefined;
       }
-      
-      this.page = undefined;
-      this.browser = undefined;
-      this.auth = undefined;
-      this.httpClient = undefined;
-      
     } catch (error) {
       console.warn(`⚠️  Error during cleanup: ${error}`);
     }
@@ -420,4 +232,4 @@ export async function quickScrape(
   } finally {
     await scraper.close();
   }
-} 
+}

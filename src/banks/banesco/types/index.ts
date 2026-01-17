@@ -1,4 +1,4 @@
-// Tipos centralizados para el scraper de Banesco
+// Centralized types for Banesco scraper
 
 import { 
   BankAccount, 
@@ -21,14 +21,11 @@ export type {
 } from '../../../shared/types/index.js';
 
 // Banesco-specific credentials with required security questions - extends base
-export interface BanescCredentials extends BaseBankCredentials {
+export interface BanescoCredentials extends BaseBankCredentials {
   username: string;
   password: string;
   securityQuestions: string; // Required for Banesco
 }
-
-// Alias for backward compatibility
-export type BanescoCredentials = BanescCredentials;
 
 // Banesco authentication configuration - extends base
 export interface BanescoAuthConfig extends BaseBankAuthConfig {
@@ -41,16 +38,16 @@ export interface BanescoScrapingConfig extends BaseBankScrapingConfig {
 }
 
 // Banesco-specific extensions
-export interface BanescAccount extends BankAccount {
+export interface BanescoAccount extends BankAccount {
   bankName: 'Banesco';
 }
 
-export interface BanescTransaction extends BankTransaction {
+export interface BanescoTransaction extends BankTransaction {
   bankName?: 'Banesco';
   accountName?: string;    // Account name for multi-account support
 }
 
-export interface BanescSecurityQuestion {
+export interface BanescoSecurityQuestion {
   question: string;
   answer: string;
   fieldName: string;
@@ -84,7 +81,7 @@ export interface BanescoLoginResult extends BaseBankLoginResult {
 }
 
 // Banesco scraping result interface - extends base
-export interface BanescoScrapingResult extends BaseBankScrapingResult<BanescTransaction> {
+export interface BanescoScrapingResult extends BaseBankScrapingResult<BanescoTransaction> {
   bankName: 'Banesco';
   accountSummary?: {
     currentBalance: number | null;

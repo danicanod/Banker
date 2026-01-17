@@ -1,4 +1,4 @@
-// Tipos centralizados para el scraper de BNC
+// Centralized types for BNC scraper
 
 import { 
   BankCredentials, 

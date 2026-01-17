@@ -185,7 +185,7 @@ export class SessionManager {
         });
       }, sessionData);
 
-      // Recargar la página para aplicar los cambios
+      // Reload the page to apply changes
       await page.reload({ waitUntil: 'domcontentloaded' });
 
       this.logger.success('Session restored successfully');

@@ -7,9 +7,8 @@ import { PERFORMANCE_PRESETS } from '../performance-config.js';
 // Shared types for all bank implementations
 export * from './base.js';
 
-// Re-export with aliases for backward compatibility
+// Re-export base types with common aliases
 export type {
-  BankCredentials as BanescCredentials,
   BankAccount as Account,
   BankTransaction as Transaction,
 } from './base.js';

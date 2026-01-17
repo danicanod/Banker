@@ -1,24 +1,23 @@
 /**
- * BNC Bank Scraper
+ * BNC Bank Scraper (HTTP-Only)
  * 
- * Scraper for Banco Nacional de Crédito (BNC) with HTTP and Playwright support
+ * Pure HTTP-based scraper for Banco Nacional de Crédito (BNC).
+ * No browser automation required - uses direct HTTP requests for
+ * authentication and transaction fetching.
  * 
  * Features:
- * - HTTP-first mode for fast, browser-free scraping
- * - Playwright fallback for complex scenarios
- * - Authentication with card number, ID, and password
- * - Transaction scraping for multiple accounts (VES, USD)
+ * - Pure HTTP authentication (no Playwright needed)
+ * - Fast transaction fetching (~8-10x faster than browser)
+ * - Multi-account support (VES, USD)
  * - Comprehensive logging and debugging
  * - Session management and error handling
  * - Export functionality for transactions and sessions
  */
 
-// Main scraper classes
+// Main scraper class (HTTP-based)
 export { BncScraper, createBncScraper, quickScrape } from './scrapers/bnc-scraper.js';
-export { BncAuth } from './auth/bnc-auth.js';
-export { BncTransactionsScraper } from './scrapers/transactions.js';
 
-// HTTP-based client (faster, no browser needed)
+// HTTP client (direct access for advanced usage)
 export { 
   BncHttpClient, 
   createBncHttpClient, 

@@ -1,30 +1,36 @@
 /**
  * Banesco HTTP Client
  * 
- * IMPORTANT: Pure HTTP authentication does NOT work for Banesco.
- * The Banesco site requires a browser context (JavaScript execution, iframe handling).
+ * ⚠️ IMPORTANT: Pure HTTP authentication is NOT POSSIBLE for Banesco.
+ * 
+ * Investigation confirmed (Jan 2026) that the Banesco site uses JavaScript-based
+ * cookie establishment and anti-bot detection. The server returns a shell page
+ * instead of the actual login form when accessed via pure HTTP without browser
+ * context. This is a hard blocker with no known workaround.
  * 
  * This client provides:
- * 1. HTTP-based scraping AFTER authentication (use Playwright for login first)
+ * 1. HTTP-based scraping AFTER Playwright authentication (~10x faster than browser)
  * 2. Utility functions for parsing Banesco pages with Cheerio
- * 3. Cookie-based session management
+ * 3. Cookie-based session management for authenticated requests
  * 
- * For authentication, use the Playwright-based BanescoAuth class, then transfer
- * the cookies to this client for faster data fetching.
- * 
- * Example hybrid usage:
+ * REQUIRED APPROACH - Hybrid Mode:
  * ```typescript
- * // Step 1: Login with Playwright (handles JS, iframes, security questions)
+ * // Step 1: Login with Playwright (REQUIRED - handles JS, iframes, security questions)
  * const auth = new BanescoAuth(credentials);
  * const loginResult = await auth.login();
  * 
  * // Step 2: Extract cookies from Playwright session
  * const cookies = await auth.getPage()?.context().cookies();
  * 
- * // Step 3: Use HTTP client for fast data fetching
- * const httpClient = new BanescoHttpClient(credentials, { cookies });
- * const transactions = await httpClient.getTransactions();
+ * // Step 3: Use HTTP client for fast data fetching (after Playwright login)
+ * const httpClient = new BanescoHttpClient(credentials, { cookies, skipLogin: true });
+ * httpClient.importCookiesFromPlaywright(cookies);
+ * const accounts = await httpClient.getAccounts();
+ * const movements = await httpClient.getAccountMovements(accounts[0].accountNumber);
  * ```
+ * 
+ * The login() method exists for debugging/testing but will NOT succeed without
+ * JavaScript-established cookies from a browser context.
  */
 
 import * as cheerio from 'cheerio';
@@ -95,7 +101,7 @@ export interface BanescoHttpScrapingResult {
   error?: string;
 }
 
-export interface BanescoAccount {
+export interface BanescoHttpAccount {
   /** Account type (e.g., "Cuenta Corriente", "Cuenta Verde") */
   type: string;
   /** Account number */
@@ -113,7 +119,7 @@ export interface BanescoAccount {
 export interface BanescoAccountsResult {
   success: boolean;
   message: string;
-  accounts: BanescoAccount[];
+  accounts: BanescoHttpAccount[];
   error?: string;
 }
 
@@ -200,12 +206,22 @@ export class BanescoHttpClient {
   /**
    * Perform complete login flow
    * 
-   * NOTE: Pure HTTP login does NOT work for Banesco. The site requires
-   * JavaScript and browser context. Use the Playwright-based BanescoAuth
-   * for login, then import cookies to this client for data fetching.
+   * ⚠️ THIS METHOD IS NOT SUPPORTED FOR BANESCO.
+   * 
+   * Pure HTTP login does NOT work for Banesco. The site uses JavaScript-based
+   * cookie establishment and anti-bot detection. The server returns a shell page
+   * instead of the login form when accessed via pure HTTP.
+   * 
+   * USE THE HYBRID APPROACH INSTEAD:
+   * 1. Login with Playwright: `const auth = new BanescoAuth(credentials); await auth.login();`
+   * 2. Export cookies: `const cookies = await auth.getPage().context().cookies();`
+   * 3. Import to HTTP client: `httpClient.importCookiesFromPlaywright(cookies);`
+   * 4. Fetch data: `await httpClient.getAccounts();`
+   * 
+   * See: npm run example:banesco-hybrid
    */
   async login(): Promise<BanescoHttpLoginResult> {
-    // If already authenticated via imported cookies, skip login
+    // If already authenticated via imported cookies, allow operations
     if (this.isAuthenticated && this.cookies.size > 0) {
       this.log('✅ Already authenticated via imported cookies');
       return {
@@ -216,64 +232,21 @@ export class BanescoHttpClient {
       };
     }
     
-    this.log('🚀 Starting Banesco HTTP login...');
-    this.log('⚠️  WARNING: Pure HTTP login may fail. Banesco requires JavaScript.');
-    const startTime = Date.now();
-
-    try {
-      // Step 1: Load login page and get initial cookies + form fields
-      this.log('📍 Step 1: Loading login page...');
-      const loginPageData = await this.loadLoginPage();
-      
-      // Step 2: Submit username
-      this.log('📍 Step 2: Submitting username...');
-      const usernameResult = await this.submitUsername(loginPageData.formFields, loginPageData.allHiddenFields);
-      
-      // Step 3: Handle security questions (if redirected there)
-      this.log('📍 Step 3: Handling security questions...');
-      const securityResult = await this.submitSecurityQuestions(usernameResult.nextUrl);
-      
-      // Step 4: Submit password
-      this.log('📍 Step 4: Submitting password...');
-      const passwordResult = await this.submitPassword(securityResult.nextUrl);
-      
-      // Step 5: Verify authentication
-      this.log('📍 Step 5: Verifying authentication...');
-      const verified = await this.verifyAuthentication(passwordResult.nextUrl);
-      
-      const elapsed = Date.now() - startTime;
-      
-      if (verified.isAuthenticated) {
-        this.isAuthenticated = true;
-        this.log(`✅ Login successful in ${elapsed}ms`);
-        
-        return {
-          success: true,
-          message: `Authentication successful in ${elapsed}ms`,
-          authenticated: true,
-          cookies: new Map(this.cookies),
-          dashboardUrl: verified.finalUrl
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Authentication failed - could not verify login',
-          authenticated: false,
-          error: 'Verification failed'
-        };
-      }
-
-    } catch (error: any) {
-      const elapsed = Date.now() - startTime;
-      this.log(`❌ Login failed after ${elapsed}ms: ${error.message}`);
-      
-      return {
-        success: false,
-        message: error.message,
-        authenticated: false,
-        error: error.message
-      };
-    }
+    // Fail fast with clear guidance
+    const errorMessage = 
+      'HTTP-only login is NOT supported for Banesco. ' +
+      'The site requires JavaScript execution to establish session cookies. ' +
+      'Use the hybrid approach: login with Playwright (BanescoAuth), then import cookies ' +
+      'to this HTTP client for fast data fetching. See: npm run example:banesco-hybrid';
+    
+    this.log(`❌ ${errorMessage}`);
+    
+    return {
+      success: false,
+      message: errorMessage,
+      authenticated: false,
+      error: 'HTTP_LOGIN_NOT_SUPPORTED'
+    };
   }
 
   /**
@@ -523,7 +496,7 @@ export class BanescoHttpClient {
       
       const parsedAccounts = parseAccountsFromDashboard(dashboardHtml);
       
-      const accounts: BanescoAccount[] = parsedAccounts.map(acc => ({
+      const accounts: BanescoHttpAccount[] = parsedAccounts.map(acc => ({
         type: acc.type,
         accountNumber: acc.accountNumber,
         balance: acc.balance,
@@ -1061,6 +1034,45 @@ export class BanescoHttpClient {
   }
 
   // ==========================================================================
+  // Internal: Debug Helpers
+  // ==========================================================================
+
+  private debugStepCounter = 0;
+  private debugSessionId = '';
+
+  private async saveDebugHtml(step: string, html: string, url?: string): Promise<void> {
+    if (!this.config.debug) return;
+    
+    try {
+      const fs = await import('fs');
+      
+      // Initialize debug session ID on first call
+      if (!this.debugSessionId) {
+        this.debugSessionId = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      }
+      
+      this.debugStepCounter++;
+      const safeName = step.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+      const filename = `debug-banesco-${this.debugSessionId}-${this.debugStepCounter.toString().padStart(2, '0')}-${safeName}.html`;
+      
+      // Add metadata header to the HTML
+      const metadata = `<!-- 
+  Debug Capture
+  Step: ${step}
+  URL: ${url || 'N/A'}
+  Timestamp: ${new Date().toISOString()}
+  Cookies: ${this.cookies.size}
+-->
+`;
+      
+      fs.writeFileSync(filename, metadata + html);
+      this.log(`   📄 Debug HTML saved: ${filename} (${html.length} chars)`);
+    } catch (e) {
+      this.log(`   ⚠️  Failed to save debug HTML: ${e}`);
+    }
+  }
+
+  // ==========================================================================
   // Internal: Login Flow Steps
   // ==========================================================================
 
@@ -1071,6 +1083,7 @@ export class BanescoHttpClient {
     // Step 1: Hit the main login page to get session cookie
     const mainPageHtml = await this.fetchPage(BANESCO_URLS.LOGIN_PAGE);
     this.log(`   ✅ Got main login page (${mainPageHtml.length} chars)`);
+    await this.saveDebugHtml('main-login-page', mainPageHtml, BANESCO_URLS.LOGIN_PAGE);
     
     // Step 2: Load the iframe content (inicio.aspx -> redirects to LoginDNA.aspx)
     // Use Referer from the main page to simulate browser iframe load
@@ -1085,6 +1098,7 @@ export class BanescoHttpClient {
     });
     let iframeHtml = await inicioResponse.text();
     this.log(`   ✅ Got iframe content (${iframeHtml.length} chars)`);
+    await this.saveDebugHtml('iframe-inicio', iframeHtml, BANESCO_URLS.LOGIN_IFRAME_INICIO);
     
     // Check for the actual form content (various field name patterns)
     const hasUsernameField = iframeHtml.includes('txtloginname') || 
@@ -1106,6 +1120,7 @@ export class BanescoHttpClient {
       });
       iframeHtml = await directResponse.text();
       this.log(`   ✅ Got direct LoginDNA content (${iframeHtml.length} chars)`);
+      await this.saveDebugHtml('iframe-login-dna', iframeHtml, BANESCO_URLS.LOGIN_IFRAME_FORM);
     }
     
     // Final check for form content
@@ -1114,10 +1129,7 @@ export class BanescoHttpClient {
                     iframeHtml.includes('ddpControles');
     
     if (!hasForm) {
-      // Save HTML for debugging
-      const fs = await import('fs');
-      fs.writeFileSync('debug-banesco-login.html', iframeHtml);
-      this.log(`   ⚠️  Saved HTML to debug-banesco-login.html`);
+      await this.saveDebugHtml('login-form-not-found', iframeHtml, BANESCO_URLS.LOGIN_IFRAME_FORM);
       this.log(`   ⚠️  HTML preview: ${iframeHtml.substring(0, 500)}...`);
       
       throw new Error('Login form not found. The Banesco site may require JavaScript or a browser context.');
@@ -1138,6 +1150,12 @@ export class BanescoHttpClient {
     
     this.log(`   ✅ Got VIEWSTATE (${parsed.formFields.__VIEWSTATE.length} chars)`);
     this.log(`   ✅ Hidden fields: ${Object.keys(parsed.allHiddenFields).length}`);
+    
+    // Log hidden field names for debugging
+    if (this.config.debug) {
+      const fieldNames = Object.keys(parsed.allHiddenFields).slice(0, 10);
+      this.log(`   📋 Sample hidden fields: ${fieldNames.join(', ')}...`);
+    }
     
     return {
       formFields: parsed.formFields,
@@ -1177,10 +1195,28 @@ export class BanescoHttpClient {
       'ctl00$cp$ddpControles$btnAcceder': 'Aceptar'
     };
 
+    // Log form data being sent (sensitive fields redacted)
+    if (this.config.debug) {
+      const debugFormData = { ...formData };
+      if (debugFormData['ctl00$cp$ddpControles$txtloginname']) {
+        debugFormData['ctl00$cp$ddpControles$txtloginname'] = '***REDACTED***';
+      }
+      if (debugFormData['txtUsuario']) {
+        debugFormData['txtUsuario'] = '***REDACTED***';
+      }
+      this.log(`   📤 POST fields: ${Object.keys(formData).length}`);
+      this.log(`   📤 Key fields: __VIEWSTATE(${formData.__VIEWSTATE?.length || 0}), huella(${formData.huella?.length || 0})`);
+    }
+
     const response = await this.postForm(BANESCO_URLS.LOGIN_IFRAME_FORM, formData);
     
     // Should redirect to AU_ValDNA.aspx (security questions)
     const location = response.headers.get('location');
+    
+    this.log(`   📥 Response: ${response.status} ${response.statusText}`);
+    if (location) {
+      this.log(`   📥 Location header: ${location}`);
+    }
     
     if (response.status === 302 && location) {
       const nextUrl = new URL(location, BANESCO_URLS.BASE).toString();
@@ -1190,10 +1226,22 @@ export class BanescoHttpClient {
     
     // If not a redirect, check the response body for errors or next steps
     const html = await response.text();
+    await this.saveDebugHtml('after-username-submit', html, BANESCO_URLS.LOGIN_IFRAME_FORM);
     
     // Check if we got an error page
     if (html.includes('error') || html.includes('Error')) {
       this.log(`   ⚠️  Response may contain an error`);
+      
+      // Try to extract error message
+      const errorMatch = html.match(/class="[^"]*error[^"]*"[^>]*>([^<]+)</i);
+      if (errorMatch) {
+        this.log(`   ⚠️  Error message: ${errorMatch[1].trim()}`);
+      }
+    }
+    
+    // Check for "usuario incorrecto" or similar
+    if (html.toLowerCase().includes('incorrecto') || html.toLowerCase().includes('invalid')) {
+      throw new Error('Username rejected by server - check credentials');
     }
     
     // Try to find the form action for next step
@@ -1212,9 +1260,18 @@ export class BanescoHttpClient {
   private async submitSecurityQuestions(pageUrl: string): Promise<{ nextUrl: string }> {
     // Load security questions page
     const html = await this.fetchPage(pageUrl);
+    await this.saveDebugHtml('security-questions-page', html, pageUrl);
+    
     const parsed = parseSecurityQuestionsPage(html);
     
     this.log(`   Found ${parsed.questions.length} security questions`);
+    
+    // Log the actual questions for debugging
+    if (this.config.debug && parsed.questions.length > 0) {
+      parsed.questions.forEach((q, i) => {
+        this.log(`   Q${i + 1}: "${q.questionText.substring(0, 50)}..." → field: ${q.inputId}`);
+      });
+    }
     
     // Match and answer questions
     const answers: Record<string, string> = {};
@@ -1256,6 +1313,22 @@ export class BanescoHttpClient {
     
     // Should redirect to ContrasenaDNA.aspx (password page)
     const location = response.headers.get('location');
+    
+    this.log(`   📥 Response: ${response.status} ${response.statusText}`);
+    
+    // Check response body if no redirect
+    if (response.status === 200) {
+      const responseHtml = await response.text();
+      await this.saveDebugHtml('after-security-questions', responseHtml, pageUrl);
+      
+      // Check for errors
+      if (responseHtml.toLowerCase().includes('incorrecto') || 
+          responseHtml.toLowerCase().includes('invalid') ||
+          responseHtml.toLowerCase().includes('error')) {
+        this.log(`   ⚠️  Security questions response may contain an error`);
+      }
+    }
+    
     const nextUrl = location 
       ? new URL(location, BANESCO_URLS.BASE).toString()
       : BANESCO_URLS.PASSWORD;
@@ -1268,6 +1341,8 @@ export class BanescoHttpClient {
   private async submitPassword(pageUrl: string): Promise<{ nextUrl: string }> {
     // Load password page
     const html = await this.fetchPage(pageUrl);
+    await this.saveDebugHtml('password-page', html, pageUrl);
+    
     const parsed = parsePasswordPage(html);
     
     // Build form data (similar structure to username page)
@@ -1295,16 +1370,52 @@ export class BanescoHttpClient {
       bAceptar: 'Aceptar'
     };
 
+    // Log password submission (password redacted)
+    if (this.config.debug) {
+      this.log(`   📤 POST fields: ${Object.keys(formData).length}`);
+    }
+
     const response = await this.postForm(pageUrl, formData);
     
     // After password, we get HTML with JS redirect or need to follow Location
     const location = response.headers.get('location');
+    
+    this.log(`   📥 Response: ${response.status} ${response.statusText}`);
     
     // The response might be HTML with a redirect, or a 302
     if (location) {
       const nextUrl = new URL(location, BANESCO_URLS.BASE).toString();
       this.log(`   ✅ Password submitted, redirecting to: ${nextUrl.split('/').pop()}`);
       return { nextUrl };
+    }
+    
+    // Check response body for errors or JS redirects
+    if (response.status === 200) {
+      const responseHtml = await response.text();
+      await this.saveDebugHtml('after-password-submit', responseHtml, pageUrl);
+      
+      // Check for errors
+      if (responseHtml.toLowerCase().includes('clave incorrecta') || 
+          responseHtml.toLowerCase().includes('contraseña inválida') ||
+          responseHtml.toLowerCase().includes('invalid password')) {
+        throw new Error('Password rejected by server - check credentials');
+      }
+      
+      // Look for JavaScript redirect
+      const jsRedirectMatch = responseHtml.match(/window\.location\s*=\s*['"]([^'"]+)['"]/);
+      if (jsRedirectMatch) {
+        const nextUrl = new URL(jsRedirectMatch[1], BANESCO_URLS.BASE).toString();
+        this.log(`   ✅ Found JS redirect to: ${nextUrl.split('/').pop()}`);
+        return { nextUrl };
+      }
+      
+      // Look for meta refresh
+      const metaRefreshMatch = responseHtml.match(/http-equiv="refresh"[^>]*content="[^"]*url=([^"]+)"/i);
+      if (metaRefreshMatch) {
+        const nextUrl = new URL(metaRefreshMatch[1], BANESCO_URLS.BASE).toString();
+        this.log(`   ✅ Found meta refresh to: ${nextUrl.split('/').pop()}`);
+        return { nextUrl };
+      }
     }
     
     // If no redirect header, the page may contain a meta refresh or JS redirect
@@ -1319,6 +1430,8 @@ export class BanescoHttpClient {
   }> {
     // Fetch the dashboard page
     const html = await this.fetchPage(dashboardUrl);
+    await this.saveDebugHtml('dashboard-verification', html, dashboardUrl);
+    
     const parsed = parseDashboardPage(html);
     
     if (parsed.isAuthenticated) {
@@ -1611,21 +1724,13 @@ export class BanescoHttpClient {
 
 /**
  * Create a Banesco HTTP client
+ * 
+ * Note: This client requires cookies from a Playwright session.
+ * Use BanescoAuth for login, then import cookies to this client.
  */
 export function createBanescoHttpClient(
   credentials: BanescoHttpCredentials,
   config?: BanescoHttpConfig
 ): BanescoHttpClient {
   return new BanescoHttpClient(credentials, config);
-}
-
-/**
- * Quick login function for simple use cases
- */
-export async function quickHttpLogin(
-  credentials: BanescoHttpCredentials,
-  config?: BanescoHttpConfig
-): Promise<BanescoHttpLoginResult> {
-  const client = createBanescoHttpClient(credentials, config);
-  return client.login();
 }

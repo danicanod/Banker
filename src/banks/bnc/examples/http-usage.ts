@@ -1,10 +1,10 @@
 /**
  * BNC HTTP Usage Example
  * 
- * Demonstrates how to use the pure HTTP-based BNC scraper for faster
+ * Demonstrates how to use the pure HTTP-based BNC scraper for fast
  * transaction fetching without browser overhead.
  * 
- * Run with: npm run example:bnc-http
+ * Run with: npm run example:bnc
  * Or: tsx src/banks/bnc/examples/http-usage.ts
  * 
  * Environment variables:
@@ -20,7 +20,6 @@ config();
 import { 
   createBncHttpClient, 
   quickHttpScrape,
-  BncScraper,
   createBncScraper 
 } from '../index.js';
 import type { BncCredentials } from '../types/index.js';
@@ -134,24 +133,22 @@ async function exampleStepByStep() {
 }
 
 // ============================================================================
-// Example 3: Using BncScraper with HTTP-first mode
+// Example 3: Using BncScraper wrapper
 // ============================================================================
 
-async function exampleScraperWithHttpMode() {
+async function exampleScraperWrapper() {
   console.log('\n' + '='.repeat(60));
-  console.log('Example 3: BncScraper with HTTP-first mode');
+  console.log('Example 3: BncScraper wrapper');
   console.log('='.repeat(60) + '\n');
 
   const credentials = getCredentials();
   const debug = process.env.BNC_DEBUG === 'true';
 
-  // Create scraper - HTTP mode is the default
-  console.log('📡 Creating BNC scraper (HTTP-first mode)...');
+  // Create scraper
+  console.log('📡 Creating BNC scraper...');
   const scraper = createBncScraper(credentials, {
     debug,
     closeAfterScraping: true
-    // forcePlaywright: false  // Default - uses HTTP first
-    // disableFallback: false  // Default - falls back to Playwright if needed
   });
 
   // Run complete scraping session
@@ -159,7 +156,7 @@ async function exampleScraperWithHttpMode() {
   const session = await scraper.scrapeAll();
 
   console.log(`\n📊 Session Results:`);
-  console.log(`   Method used: ${session.method || 'unknown'}`);
+  console.log(`   Method used: ${session.method}`);
   console.log(`   Auth success: ${session.authResult.success}`);
   console.log(`   Transaction results: ${session.transactionResults.length}`);
   
@@ -174,40 +171,6 @@ async function exampleScraperWithHttpMode() {
 }
 
 // ============================================================================
-// Example 4: Force Playwright mode (for comparison)
-// ============================================================================
-
-async function exampleForcePlaywright() {
-  console.log('\n' + '='.repeat(60));
-  console.log('Example 4: Force Playwright mode');
-  console.log('='.repeat(60) + '\n');
-
-  const credentials = getCredentials();
-  const debug = process.env.BNC_DEBUG === 'true';
-
-  // Force Playwright mode
-  console.log('🎭 Creating BNC scraper (Playwright mode forced)...');
-  const scraper = createBncScraper(credentials, {
-    debug,
-    headless: true, // Run headless for example
-    forcePlaywright: true,
-    closeAfterScraping: true
-  });
-
-  // Run scraping
-  console.log('🚀 Running Playwright-based scraping...');
-  const startTime = Date.now();
-  
-  const session = await scraper.scrapeAll();
-  
-  const elapsed = Date.now() - startTime;
-  console.log(`\n⏱️  Playwright mode completed in ${elapsed}ms`);
-  console.log(`   Method used: ${session.method}`);
-
-  return session;
-}
-
-// ============================================================================
 // Main
 // ============================================================================
 
@@ -215,17 +178,14 @@ async function main() {
   console.log('🏦 BNC HTTP Usage Examples');
   console.log('==========================\n');
 
-  // Example 1: Quick scrape
+  // Example 1: Quick scrape (default)
   await exampleQuickScrape();
 
   // Example 2: Step-by-step (uncomment to run)
   // await exampleStepByStep();
 
-  // Example 3: Scraper with HTTP mode (uncomment to run)
-  // await exampleScraperWithHttpMode();
-
-  // Example 4: Force Playwright (uncomment to run - requires browser)
-  // await exampleForcePlaywright();
+  // Example 3: Scraper wrapper (uncomment to run)
+  // await exampleScraperWrapper();
 
   console.log('\n✅ Examples completed!');
 }
