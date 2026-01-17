@@ -60,11 +60,14 @@ async function getOrCreateBank(
     color: "#666666",
   };
 
+  const now = Date.now();
   return await ctx.db.insert("banks", {
     code: bankCode,
     name: defaults.name,
     color: defaults.color,
     active: true,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
@@ -116,6 +119,7 @@ export const ingestTransactions = internalMutation({
         balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
+        updatedAt: now,
       });
 
       // Create "transaction.created" event
@@ -346,6 +350,7 @@ export const ingestFromLocal = mutation({
         balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
+        updatedAt: now,
       });
 
       // Create "transaction.created" event
@@ -388,12 +393,15 @@ export const upsertBank = mutation({
       .withIndex("by_code", (q) => q.eq("code", code))
       .first();
 
+    const now = Date.now();
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         name,
         logoUrl,
         color,
         active: active ?? existing.active,
+        updatedAt: now,
       });
       return existing._id;
     }
@@ -404,6 +412,8 @@ export const upsertBank = mutation({
       logoUrl,
       color,
       active: active ?? true,
+      createdAt: now,
+      updatedAt: now,
     });
   },
 });

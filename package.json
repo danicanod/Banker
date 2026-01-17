@@ -100,6 +100,7 @@
   },
   "dependencies": {
     "@browserbasehq/sdk": "^2.6.0",
+    "@notionhq/client": "^2.3.0",
     "cheerio": "^1.1.2",
     "convex": "^1.31.5",
     "dotenv": "^16.5.0",

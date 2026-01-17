@@ -5,6 +5,7 @@
  * - banks: bank definitions (Banesco, BNC, etc.)
  * - transactions: bank transactions with idempotent txnKey
  * - events: generic event system for notifications (transaction.created, etc.)
+ * - integration_state: tracks sync state for external integrations (e.g., Notion)
  */
 
 import { defineSchema, defineTable } from "convex/server";
@@ -31,8 +32,18 @@ export default defineSchema({
     
     // Is this bank active/enabled?
     active: v.boolean(),
+    
+    // Timestamps (ms since epoch)
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    
+    // Notion sync fields
+    notionPageId: v.optional(v.string()),
+    notionLastSyncedAt: v.optional(v.number()),
+    notionLastEditedAt: v.optional(v.number()),
   })
-    .index("by_code", ["code"]),
+    .index("by_code", ["code"])
+    .index("by_notionPageId", ["notionPageId"]),
 
   /**
    * Bank transactions table
@@ -62,14 +73,21 @@ export default defineSchema({
     // Store the complete raw transaction for reference
     raw: v.optional(v.any()),
     
-    // Timestamp when inserted into Convex
+    // Timestamps (ms since epoch)
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+    
+    // Notion sync fields
+    notionPageId: v.optional(v.string()),
+    notionLastSyncedAt: v.optional(v.number()),
+    notionLastEditedAt: v.optional(v.number()),
   })
     .index("by_txnKey", ["txnKey"])
     .index("by_bankId", ["bankId"])
     .index("by_bankCode", ["bankCode"])
     .index("by_bankCode_date", ["bankCode", "date"])
-    .index("by_createdAt", ["createdAt"]),
+    .index("by_createdAt", ["createdAt"])
+    .index("by_notionPageId", ["notionPageId"]),
 
   /**
    * Generic events table
@@ -108,4 +126,24 @@ export default defineSchema({
     .index("by_type_acknowledged", ["type", "acknowledged"])
     .index("by_bankId", ["bankId"])
     .index("by_createdAt", ["createdAt"]),
+
+  /**
+   * Integration state table
+   * 
+   * Tracks sync state for external integrations (e.g., Notion).
+   * Stores cursors/timestamps to enable efficient incremental syncs.
+   */
+  integration_state: defineTable({
+    // Integration name (e.g., "notion")
+    name: v.string(),
+    
+    // Last pull timestamps for each entity type (ms since epoch)
+    banksLastPullMs: v.optional(v.number()),
+    transactionsLastPullMs: v.optional(v.number()),
+    
+    // General sync metadata
+    lastRunMs: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_name", ["name"]),
 });
