@@ -5,7 +5,7 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, MutationCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 
 /**
@@ -43,12 +43,12 @@ export const EVENT_TYPES = {
  * Helper: Get or create a bank by code
  */
 async function getOrCreateBank(
-  ctx: { db: any },
+  ctx: MutationCtx,
   bankCode: string
 ): Promise<Id<"banks">> {
   const existing = await ctx.db
     .query("banks")
-    .withIndex("by_code", (q: any) => q.eq("code", bankCode))
+    .withIndex("by_code", (q) => q.eq("code", bankCode))
     .first();
 
   if (existing) {
@@ -91,12 +91,12 @@ export const ingestTransactions = internalMutation({
       // Check if transaction already exists by txnKey
       const existing = await ctx.db
         .query("transactions")
-        .withIndex("by_txnKey", (q: any) => q.eq("txnKey", tx.txnKey))
+        .withIndex("by_txnKey", (q) => q.eq("txnKey", tx.txnKey))
         .first();
 
       if (existing) {
         // Backfill missing fields (reference, bankCode)
-        const patches: Record<string, any> = {};
+        const patches: Record<string, string | number | boolean> = {};
         if (tx.reference && !existing.reference) {
           patches.reference = tx.reference;
         }
@@ -121,7 +121,10 @@ export const ingestTransactions = internalMutation({
       // Insert new transaction
       const now = Date.now();
       // Extract reference from input or from raw data if available
-      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
+      const rawObj = tx.raw as Record<string, unknown> | undefined;
+      const reference = tx.reference ?? 
+        (typeof rawObj?.reference === 'string' ? rawObj.reference : undefined) ??
+        (typeof rawObj?.referenceNumber === 'string' ? rawObj.referenceNumber : undefined);
       const txnId = await ctx.db.insert("transactions", {
         bankId,
         bankCode: tx.bank,
@@ -338,13 +341,16 @@ export const ingestFromLocal = mutation({
     for (const tx of transactions) {
       const existing = await ctx.db
         .query("transactions")
-        .withIndex("by_txnKey", (q: any) => q.eq("txnKey", tx.txnKey))
+        .withIndex("by_txnKey", (q) => q.eq("txnKey", tx.txnKey))
         .first();
 
       if (existing) {
         // Backfill missing fields (reference, bankCode) even for duplicates
-        const patches: Record<string, any> = {};
-        const incomingRef = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
+        const patches: Record<string, string | number | boolean> = {};
+        const rawObj = tx.raw as Record<string, unknown> | undefined;
+        const incomingRef = tx.reference ?? 
+          (typeof rawObj?.reference === 'string' ? rawObj.reference : undefined) ??
+          (typeof rawObj?.referenceNumber === 'string' ? rawObj.referenceNumber : undefined);
         if (incomingRef && !existing.reference) {
           patches.reference = incomingRef;
         }
@@ -368,13 +374,16 @@ export const ingestFromLocal = mutation({
 
       const now = Date.now();
       // Extract reference from input or from raw data if available
-      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
+      const rawObjInsert = tx.raw as Record<string, unknown> | undefined;
+      const referenceInsert = tx.reference ?? 
+        (typeof rawObjInsert?.reference === 'string' ? rawObjInsert.reference : undefined) ??
+        (typeof rawObjInsert?.referenceNumber === 'string' ? rawObjInsert.referenceNumber : undefined);
       const txnId = await ctx.db.insert("transactions", {
         bankId,
         bankCode: tx.bank,
         accountId: tx.accountId,
         txnKey: tx.txnKey,
-        reference: reference || undefined,
+        reference: referenceInsert || undefined,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
@@ -461,8 +470,10 @@ export const backfillReferences = internalMutation({
       if (txn.reference) continue;
 
       // Try to extract reference from raw data
-      const raw = txn.raw as any;
-      const reference = raw?.reference ?? raw?.referenceNumber;
+      const raw = txn.raw as Record<string, unknown> | undefined;
+      const reference = 
+        (typeof raw?.reference === 'string' ? raw.reference : undefined) ??
+        (typeof raw?.referenceNumber === 'string' ? raw.referenceNumber : undefined);
 
       if (reference) {
         await ctx.db.patch(txn._id, {

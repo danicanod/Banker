@@ -3,8 +3,11 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { StrategicLogger } from './strategic-logger.js';
 
+/** Playwright cookie type derived from BrowserContext.cookies() */
+type PlaywrightCookie = Awaited<ReturnType<BrowserContext['cookies']>>[number];
+
 export interface SessionData {
-  cookies: any[];
+  cookies: PlaywrightCookie[];
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
   url: string;
@@ -170,7 +173,7 @@ export class SessionManager {
         Object.entries(data.localStorage).forEach(([key, value]) => {
           try {
             window.localStorage.setItem(key, value);
-          } catch (e) {
+          } catch {
             console.warn('Failed to set localStorage item:', key);
           }
         });
@@ -179,7 +182,7 @@ export class SessionManager {
         Object.entries(data.sessionStorage).forEach(([key, value]) => {
           try {
             window.sessionStorage.setItem(key, value);
-          } catch (e) {
+          } catch {
             console.warn('Failed to set sessionStorage item:', key);
           }
         });
@@ -229,7 +232,7 @@ export class SessionManager {
       const sessionPath = this.getSessionPath(username);
       await fs.unlink(sessionPath);
       this.logger.info('Session cleared', { username: username.substring(0, 3) + '***' });
-    } catch (error) {
+    } catch {
       // Session file doesn't exist, that's fine
       this.logger.trace('No session to clear');
     }
@@ -268,7 +271,7 @@ export class SessionManager {
             timestamp: sessionData.timestamp,
             ageHours: Math.round((Date.now() - sessionData.timestamp) / (60 * 60 * 1000))
           });
-        } catch (e) {
+        } catch {
           // Skip invalid session files
         }
       }

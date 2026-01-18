@@ -1,3 +1,13 @@
+/**
+ * Safely extract an error message from an unknown thrown value.
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export class Helpers {
   
   static async waitForTimeout(ms: number): Promise<void> {
@@ -59,50 +69,38 @@ export class Helpers {
     const envCheck = this.validateEnvironmentVariables();
     
     if (envCheck.valid) {
-      console.log('✅ Variables de entorno configuradas correctamente');
+      console.log('[env] all required variables present');
     } else {
-      console.log('❌ Variables de entorno faltantes:');
-      envCheck.missing.forEach(varName => {
-        console.log(`   - ${varName}`);
-      });
-      console.log('\n💡 Revisa tu archivo .env');
+      console.log('[env] missing variables:', envCheck.missing.join(', '));
     }
   }
 
   static logScrapingStats(accounts: number, transactions: number): void {
-    console.log('\n📊 ESTADÍSTICAS DE SCRAPING:');
-    console.log('============================');
-    console.log(`🏦 Cuentas extraídas: ${accounts}`);
-    console.log(`💳 Transacciones extraídas: ${transactions}`);
-    console.log(`⏱️  Timestamp: ${this.formatDateTime(new Date())}`);
+    console.log(`[stats] accounts=${accounts} transactions=${transactions} ts=${new Date().toISOString()}`);
   }
 
   static delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  static retryAsync<T>(
+  static async retryAsync<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
     delayMs: number = 1000
   ): Promise<T> {
-    return new Promise(async (resolve, reject) => {
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const result = await fn();
-          resolve(result);
-          return;
-        } catch (error) {
-          console.log(`⚠️  Intento ${attempt}/${maxRetries} falló:`, error);
-          
-          if (attempt === maxRetries) {
-            reject(error);
-            return;
-          }
-          
-          await this.delay(delayMs);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        console.log(`Attempt ${attempt}/${maxRetries} failed:`, error);
+        
+        if (attempt === maxRetries) {
+          throw error;
         }
+        
+        await this.delay(delayMs);
       }
-    });
+    }
+    throw new Error('Retry exhausted');
   }
 } 

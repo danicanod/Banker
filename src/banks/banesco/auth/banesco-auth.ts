@@ -84,16 +84,17 @@ export class BanescoAuth extends BaseBankAuth<
         const result = await super.login();
         return result;
         
-      } catch (error: any) {
-        lastError = error;
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message;
         
         // Check if this is a transient outage that we should retry
         const banescoError = this.getLastBanescoError();
         const isTransient = banescoError?.isTransientOutage || 
-          (error.message && (
-            error.message.includes('temporarily unavailable') ||
-            error.message.includes('intente más tarde') ||
-            error.message.includes('intente mas tarde')
+          (errorMessage && (
+            errorMessage.includes('temporarily unavailable') ||
+            errorMessage.includes('intente más tarde') ||
+            errorMessage.includes('intente mas tarde')
           ));
         
         if (isTransient && attempt < maxAttempts) {
@@ -106,7 +107,7 @@ export class BanescoAuth extends BaseBankAuth<
         }
         
         // Not a transient error or no more retries - fail
-        throw error;
+        throw lastError;
       }
     }
     
@@ -131,7 +132,7 @@ export class BanescoAuth extends BaseBankAuth<
   protected async performBankSpecificLogin(): Promise<boolean> {
     try {
       // Wait for the login iframe to be available
-      this.log('🔍 Waiting for login iframe...');
+      this.log('Waiting for login iframe...');
       const frame = await this.waitForLoginIframe();
       
       if (!frame) {
@@ -180,7 +181,7 @@ export class BanescoAuth extends BaseBankAuth<
       return false;
 
     } catch (error) {
-      this.log(`❌ Bank-specific login failed: ${error}`);
+      this.log(`Bank-specific login failed: ${error}`);
       throw error; // Re-throw to propagate the detailed error message
     }
   }
@@ -225,7 +226,7 @@ export class BanescoAuth extends BaseBankAuth<
       for (const sel of usernameSelectors) {
         try {
           await frame.waitForSelector(sel, { timeout: 2500, state: 'visible' });
-          this.log(`✅ Username field detected: ${sel}`);
+          this.log(`Username field detected: ${sel}`);
           usernameFieldFound = true;
           break;
         } catch {
@@ -237,14 +238,14 @@ export class BanescoAuth extends BaseBankAuth<
         // Log for debugging but don't fail - enterUsernameAndSubmit has its own lookup
         const frameContent = await frame.content();
         const hasForm = frameContent.includes('txtloginname') || frameContent.includes('txtUsuario');
-        this.log(`⚠️ Username field not found via fast check. Form elements in HTML: ${hasForm}`);
+        this.log(`Username field not found via fast check. Form elements in HTML: ${hasForm}`);
       }
       
-      this.log('✅ Login iframe ready');
+      this.log('Login iframe ready');
       return frame;
 
     } catch (error) {
-      this.log(`❌ Failed to access login iframe: ${error}`);
+      this.log(`Failed to access login iframe: ${error}`);
       return null;
     }
   }
@@ -266,7 +267,7 @@ export class BanescoAuth extends BaseBankAuth<
     try {
       const frameUrl = frame.url();
       if (frameUrl.includes('AU_ValDNA.aspx')) {
-        this.log('🔍 Detected AU_ValDNA.aspx URL - this is security questions page');
+        this.log('Detected AU_ValDNA.aspx URL - this is security questions page');
         return BanescoAuth.LOGIN_STEP.SECURITY_QUESTIONS;
       }
     } catch { /* continue */ }
@@ -339,7 +340,7 @@ export class BanescoAuth extends BaseBankAuth<
    * This method loops to handle that warning until we reach password or max retries.
    */
   private async performLogin(frame: Frame): Promise<boolean> {
-    this.log('🔐 Starting login process...');
+    this.log('Starting login process...');
 
     try {
       // Step 1: Enter username and submit
@@ -362,13 +363,13 @@ export class BanescoAuth extends BaseBankAuth<
         }
 
         const step = await this.detectCurrentStep(currentFrame);
-        this.log(`🔍 Detected step: ${step} (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        this.log(`Detected step: ${step} (attempt ${attempt + 1}/${MAX_RETRIES})`);
 
         if (step === BanescoAuth.LOGIN_STEP.PASSWORD) {
           // Found password field - proceed to enter password
           this.log('🔑 Step 3: Entering password...');
           await this.enterPasswordDirect(currentFrame);
-          this.log('✅ Login form submitted successfully');
+          this.log('Login form submitted successfully');
           return true;
         }
 
@@ -376,18 +377,18 @@ export class BanescoAuth extends BaseBankAuth<
           this.log('❓ Step 2: Handling security questions...');
           const result: SecurityQuestionsResult = await this.securityHandler.handleSecurityQuestions(currentFrame);
           
-          this.log(`📊 Security questions: ${result.answersProvided}/${result.questionsFound} answered`);
+          this.log(`Security questions: ${result.answersProvided}/${result.questionsFound} answered`);
           
           // Banesco typically requires 2 answers. Don't require \"all\" because the page can contain extra slots.
           if (result.meetsMinimum) {
-            this.log(`✅ Security questions answered (>= ${result.minimumRequiredAnswers}), submitting...`);
+            this.log(`Security questions answered (>= ${result.minimumRequiredAnswers}), submitting...`);
             await this.clickSubmitButton(currentFrame);
             await this.page?.waitForTimeout(2000);
             currentFrame = await this.getRefreshedFrame();
             continue;
           } else if (result.questionsFound === 0) {
             // No questions found - might be a detection issue, try to continue
-            this.log('⚠️ No security questions found on page, attempting to continue...');
+            this.log('No security questions found on page, attempting to continue...');
             await this.clickSubmitButton(currentFrame);
             await this.page?.waitForTimeout(2000);
             currentFrame = await this.getRefreshedFrame();
@@ -408,7 +409,7 @@ export class BanescoAuth extends BaseBankAuth<
         }
 
         if (step === BanescoAuth.LOGIN_STEP.ACTIVE_SESSION_WARNING) {
-          this.log('⚠️ Active session warning detected, clicking Aceptar to continue...');
+          this.log('Active session warning detected, clicking Aceptar to continue...');
           await this.clickSubmitButton(currentFrame);
           await this.page?.waitForTimeout(3000);
           currentFrame = await this.getRefreshedFrame();
@@ -424,7 +425,7 @@ export class BanescoAuth extends BaseBankAuth<
       throw new Error('Max retries exceeded - could not reach password step');
 
     } catch (error) {
-      this.log(`❌ Login process failed: ${error}`);
+      this.log(`Login process failed: ${error}`);
       return false;
     }
   }
@@ -446,7 +447,7 @@ export class BanescoAuth extends BaseBankAuth<
         const element = await frame.$(selector);
         if (element && await element.isVisible()) {
           passwordField = element;
-          this.log(`✅ Found password field: ${selector}`);
+          this.log(`Found password field: ${selector}`);
           break;
         }
       } catch { continue; }
@@ -462,7 +463,7 @@ export class BanescoAuth extends BaseBankAuth<
     
     // Type like a human (character by character with small delays)
     await passwordField.type(this.credentials.password, { delay: 50 });
-    this.log('✅ Password entered');
+    this.log('Password entered');
 
     // Human-like delay before submitting
     await this.humanDelay(500, 1000);
@@ -471,7 +472,7 @@ export class BanescoAuth extends BaseBankAuth<
     // This allows any JavaScript handlers on the form to process normally
     this.log('🔘 Pressing Enter to submit...');
     await passwordField.press('Enter');
-    this.log('✅ Submit triggered via Enter');
+    this.log('Submit triggered via Enter');
   }
   
   /**
@@ -514,7 +515,7 @@ export class BanescoAuth extends BaseBankAuth<
       'input[type="text"]'
     ];
     
-    this.log('🔍 Looking for username field...');
+    this.log('Looking for username field...');
     
     let usernameField = null;
     for (const selector of usernameSelectors) {
@@ -522,7 +523,7 @@ export class BanescoAuth extends BaseBankAuth<
         const element = await frame.$(selector);
         if (element && await element.isVisible()) {
           usernameField = element;
-          this.log(`✅ Found username field: ${selector}`);
+          this.log(`Found username field: ${selector}`);
           break;
         }
       } catch { continue; }
@@ -538,7 +539,7 @@ export class BanescoAuth extends BaseBankAuth<
     
     // Type like a human (character by character with small delays)
     await usernameField.type(this.credentials.username, { delay: 50 });
-    this.log('✅ Username entered');
+    this.log('Username entered');
     
     // Human-like delay before submitting
     await this.humanDelay(300, 600);
@@ -566,7 +567,7 @@ export class BanescoAuth extends BaseBankAuth<
         if (element && await element.isVisible()) {
           this.log(`🔘 Clicking submit: ${selector}`);
           await element.click();
-          this.log('✅ Submit clicked');
+          this.log('Submit clicked');
           return;
         }
       } catch { continue; }
@@ -574,89 +575,6 @@ export class BanescoAuth extends BaseBankAuth<
     
     throw new Error('Submit button not found');
   }
-
-  /**
-   * Check for and handle security questions
-   * Uses the exact label IDs that Banesco uses (lblPrimeraP, lblSegundaP, etc.)
-   */
-  private async checkForSecurityQuestions(frame: Frame): Promise<boolean> {
-    try {
-      // Check for security question labels (specific Banesco IDs)
-      const labelSelectors = [
-        '#lblPrimeraP',
-        '#lblSegundaP',
-        '#lblTerceraP',
-        '#lblCuartaP',
-        'label[id*="Pregunta"]',
-        'span[id*="Pregunta"]'
-      ];
-      
-      // Check for security question input fields
-      const inputSelectors = [
-        '#txtPrimeraR',
-        '#txtSegundaR',
-        '#txtTerceraR',
-        '#txtCuartaR',
-        '#ctl00_cp_ddpControles_txtpreguntasecreta',
-        'input[id*="respuesta"]',
-        'input[id*="Respuesta"]'
-      ];
-      
-      let foundLabel = false;
-      let foundInput = false;
-      
-      for (const selector of labelSelectors) {
-        try {
-          const el = await frame.$(selector);
-          if (el && await el.isVisible()) {
-            foundLabel = true;
-            this.log(`🔒 Found security question label: ${selector}`);
-            break;
-          }
-        } catch { continue; }
-      }
-      
-      for (const selector of inputSelectors) {
-        try {
-          const el = await frame.$(selector);
-          if (el && await el.isVisible()) {
-            foundInput = true;
-            this.log(`🔒 Found security input field: ${selector}`);
-            break;
-          }
-        } catch { continue; }
-      }
-      
-      // Also check page content for security question text
-      const frameContent = await frame.content();
-      const hasSecurityText = frameContent.toLowerCase().includes('pregunta') && 
-                              frameContent.toLowerCase().includes('seguridad');
-      
-      if (!foundLabel && !foundInput && !hasSecurityText) {
-        this.log('ℹ️  No security questions detected');
-        return false;
-      }
-
-      // Security question found - handle it
-      this.log('🔒 Security question detected, handling...');
-      
-      const answered = await this.securityHandler.handleSecurityQuestions(frame);
-      
-      if (answered) {
-        this.log('✅ Security question answered successfully');
-        return true;
-      } else {
-        this.log('⚠️ Could not answer security question, continuing anyway');
-        return false;
-      }
-
-    } catch (error) {
-      this.log(`⚠️  Security question handling error: ${error}`);
-      // Continue without failing completely
-      return false;
-    }
-  }
-
 
   /**
    * Check the login iframe for Banesco's error page (error.aspx).
@@ -736,7 +654,7 @@ export class BanescoAuth extends BaseBankAuth<
 
       return null;
     } catch (error) {
-      this.log(`⚠️ Error checking for Banesco error page: ${error}`);
+      this.log(`Error checking for Banesco error page: ${error}`);
       return null;
     }
   }
@@ -758,7 +676,7 @@ export class BanescoAuth extends BaseBankAuth<
         pageContent.includes('icon-salida');
 
       if (hasLogoutLink) {
-        this.log('✅ Found authenticated chrome (logout link)');
+        this.log('Found authenticated chrome (logout link)');
         return true;
       }
 
@@ -771,14 +689,14 @@ export class BanescoAuth extends BaseBankAuth<
           if (frameContent.includes('salir.aspx') || 
               frameContent.includes('Cerrar Sesión') ||
               frameContent.includes('Bienvenido')) {
-            this.log('✅ Found authenticated indicators in iframe');
+            this.log('Found authenticated indicators in iframe');
             return true;
           }
         }
       }
 
       return false;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -793,7 +711,7 @@ export class BanescoAuth extends BaseBankAuth<
     this.lastBanescoError = null;
 
     try {
-      this.log('🔍 Verifying login success...');
+      this.log('Verifying login success...');
       
       // Poll for URL change (up to 15 seconds)
       const MAX_WAIT_MS = 15000;
@@ -810,14 +728,14 @@ export class BanescoAuth extends BaseBankAuth<
         if (currentUrl.includes('default.aspx') || 
             currentUrl.includes('principal.aspx') ||
             currentUrl.includes('index.aspx')) {
-          this.log(`📍 Current URL: ${this.page.url()}`);
-          this.log('✅ Login verification successful by URL pattern');
+          this.log(`Current URL: ${this.page.url()}`);
+          this.log('Login verification successful by URL pattern');
           return true;
         }
 
         // Check for authenticated chrome (logout link) early
         if (await this.checkForAuthenticatedChrome()) {
-          this.log(`📍 Current URL: ${this.page.url()}`);
+          this.log(`Current URL: ${this.page.url()}`);
           return true;
         }
 
@@ -828,13 +746,13 @@ export class BanescoAuth extends BaseBankAuth<
           const errorInfo = errorDetails.errorCode 
             ? `${errorDetails.errorCode}${errorDetails.server ? ' / ' + errorDetails.server : ''}`
             : 'unknown';
-          this.log(`❌ Banesco error page detected (${errorInfo}): ${errorDetails.message}`);
+          this.log(`Banesco error page detected (${errorInfo}): ${errorDetails.message}`);
           return false;
         }
       }
       
       const currentUrl = this.page.url();
-      this.log(`📍 Current URL: ${currentUrl}`);
+      this.log(`Current URL: ${currentUrl}`);
 
       // Final check for Banesco error page before trying navigation
       const errorBeforeNav = await this.checkForBanescoErrorPage();
@@ -843,14 +761,14 @@ export class BanescoAuth extends BaseBankAuth<
         const errorInfo = errorBeforeNav.errorCode 
           ? `${errorBeforeNav.errorCode}${errorBeforeNav.server ? ' / ' + errorBeforeNav.server : ''}`
           : 'unknown';
-        this.log(`❌ Banesco error page detected (${errorInfo}): ${errorBeforeNav.message}`);
+        this.log(`Banesco error page detected (${errorInfo}): ${errorBeforeNav.message}`);
         return false;
       }
       
       // Still on login page - try to navigate to dashboard explicitly
       const urlLower = currentUrl.toLowerCase();
       if (urlLower.includes('login.aspx')) {
-        this.log('⚠️ Still on login page, trying explicit navigation to dashboard...');
+        this.log('Still on login page, trying explicit navigation to dashboard...');
         
         try {
           await this.page.goto('https://www.banesconline.com/Mantis/WebSite/Default.aspx', {
@@ -861,7 +779,7 @@ export class BanescoAuth extends BaseBankAuth<
           
           const newUrl = this.page.url().toLowerCase();
           if (newUrl.includes('default.aspx') && !newUrl.includes('login')) {
-            this.log('✅ Login verified - navigated to dashboard successfully');
+            this.log('Login verified - navigated to dashboard successfully');
             return true;
           }
           
@@ -873,14 +791,14 @@ export class BanescoAuth extends BaseBankAuth<
               const errorInfo = errorAfterNav.errorCode 
                 ? `${errorAfterNav.errorCode}${errorAfterNav.server ? ' / ' + errorAfterNav.server : ''}`
                 : 'unknown';
-              this.log(`❌ Banesco unavailable (${errorInfo}): ${errorAfterNav.message}`);
+              this.log(`Banesco unavailable (${errorInfo}): ${errorAfterNav.message}`);
               return false;
             }
-            this.log('❌ Login failed - redirected back to login page');
+            this.log('Login failed - redirected back to login page');
             return false;
           }
         } catch (navError) {
-          this.log(`⚠️ Navigation error: ${navError}`);
+          this.log(`Navigation error: ${navError}`);
         }
       }
       
@@ -900,11 +818,11 @@ export class BanescoAuth extends BaseBankAuth<
         
         for (const indicator of authenticatedIndicators) {
           if (pageContent.toLowerCase().includes(indicator.toLowerCase())) {
-            this.log(`✅ Login verified by content indicator: "${indicator}"`);
+            this.log(`Login verified by content indicator: "${indicator}"`);
             return true;
           }
         }
-      } catch (e) {
+      } catch {
         // Continue with other checks
       }
       
@@ -916,12 +834,12 @@ export class BanescoAuth extends BaseBankAuth<
           if (systemFrame) {
             const systemStatus = await systemFrame.$('.StatusSystemOK, .available');
             if (systemStatus) {
-              this.log('✅ Login verified by system status iframe');
+              this.log('Login verified by system status iframe');
               return true;
             }
           }
         }
-      } catch (e) {
+      } catch {
         // Continue with other checks
       }
       
@@ -935,20 +853,20 @@ export class BanescoAuth extends BaseBankAuth<
           const errorInfo = finalError.errorCode 
             ? `${finalError.errorCode}${finalError.server ? ' / ' + finalError.server : ''}`
             : 'unknown';
-          this.log(`❌ Banesco unavailable (${errorInfo}): ${finalError.message}`);
+          this.log(`Banesco unavailable (${errorInfo}): ${finalError.message}`);
         } else {
-          this.log('❌ Login verification failed - still on login page');
+          this.log('Login verification failed - still on login page');
           this.log(`   URL: ${this.page.url()}`);
         }
         return false;
       }
       
       // We're not on login page, consider it a success
-      this.log('✅ Login appears successful - no longer on login page');
+      this.log('Login appears successful - no longer on login page');
       return true;
       
     } catch (error) {
-      this.log(`❌ Error during login verification: ${error}`);
+      this.log(`Error during login verification: ${error}`);
       return false;
     }
   }

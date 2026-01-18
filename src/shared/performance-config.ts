@@ -279,7 +279,7 @@ export function isEssentialJS(url: string, bankName: string): boolean {
     if (urlObj.hostname.includes(bankLower)) {
       return true;
     }
-  } catch (e) {
+  } catch {
     // Invalid URL, check patterns
   }
   

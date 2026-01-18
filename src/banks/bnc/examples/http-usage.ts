@@ -98,7 +98,7 @@ async function exampleQuickScrape() {
 // Example 2: Step-by-step HTTP Client usage
 // ============================================================================
 
-async function exampleStepByStep() {
+export async function exampleStepByStep() {
   console.log('\n' + '='.repeat(60));
   console.log('Example 2: Step-by-step HTTP Client');
   console.log('='.repeat(60) + '\n');
@@ -140,7 +140,7 @@ async function exampleStepByStep() {
 // Example 3: Using BncClient (recommended)
 // ============================================================================
 
-async function exampleClientUsage() {
+export async function exampleClientUsage() {
   console.log('\n' + '='.repeat(60));
   console.log('Example 3: BncClient (Recommended)');
   console.log('='.repeat(60) + '\n');

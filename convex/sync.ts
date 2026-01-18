@@ -201,11 +201,11 @@ async function extractTransactionsFromPage(page: Page): Promise<BanescoTransacti
       );
 
       // Try to find date, amount, description patterns
-      const dateMatch = cellTexts.find(t => /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(t));
+      const dateMatch = cellTexts.find(t => /\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(t));
       const amountMatch = cellTexts.find(t => /[\d.,]+/.test(t) && (t.includes(",") || t.includes(".")));
       const description = cellTexts.find(t => 
         t.length > 10 && 
-        !/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(t) &&
+        !/\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(t) &&
         !/^[\d.,]+$/.test(t)
       );
 

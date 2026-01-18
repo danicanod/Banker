@@ -32,7 +32,7 @@ export const patchBankNotionData = internalMutation({
     const now = Date.now();
     
     // Filter out undefined values
-    const cleanPatch: Record<string, any> = { updatedAt: now };
+    const cleanPatch: Record<string, string | number | boolean> = { updatedAt: now };
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) {
         cleanPatch[key] = value;
@@ -60,7 +60,7 @@ export const patchTransactionNotionData = internalMutation({
     const now = Date.now();
     
     // Filter out undefined values
-    const cleanPatch: Record<string, any> = { updatedAt: now };
+    const cleanPatch: Record<string, string | number | boolean> = { updatedAt: now };
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) {
         cleanPatch[key] = value;
@@ -116,7 +116,7 @@ export const updateIntegrationState = internalMutation({
     }
     
     // Filter out undefined values
-    const cleanPatch: Record<string, any> = {};
+    const cleanPatch: Record<string, string | number | boolean> = {};
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) {
         cleanPatch[key] = value;

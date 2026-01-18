@@ -41,6 +41,7 @@ export interface BaseBankLoginResult {
 }
 
 // Base bank credentials interface (can be extended by specific banks)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface BaseBankCredentials {
   // Common fields that all banks might have
   // Specific banks can extend this interface
@@ -56,11 +57,11 @@ export interface BaseBankScrapingConfig {
 }
 
 // Base scraping result interface
-export interface BaseBankScrapingResult<T = any> {
+export interface BaseBankScrapingResult<T = unknown> {
   success: boolean;
   message: string;
   data?: T[];
   timestamp: Date;
   error?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }

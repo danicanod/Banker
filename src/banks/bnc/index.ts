@@ -47,8 +47,6 @@ export type {
   BncTransaction,
   Account,
   Transaction,
-  LoginResult,
-  BrowserConfig,
 } from './types/index.js';
 
 export {

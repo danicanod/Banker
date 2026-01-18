@@ -56,7 +56,7 @@ async function exampleBncHttpScraping() {
  * Example 2: BNC Client wrapper
  * Uses the BncClient class for session management
  */
-async function exampleBncClient() {
+export async function exampleBncClient() {
   console.log('⚡ Example 2: BNC Client');
 
   const client = createBncClient(bncCredentials, {
@@ -83,7 +83,7 @@ async function exampleBncClient() {
  * Example 3: Banesco Client (Hybrid: Playwright login + HTTP fetch)
  * Uses Playwright only for login, then HTTP for fast data fetching.
  */
-async function exampleBanescoClient() {
+export async function exampleBanescoClient() {
   console.log('⚡ Example 3: Banesco Client (Hybrid Mode)');
 
   const client = createBanescoClient(banescoCredentials, {

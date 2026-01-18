@@ -69,14 +69,14 @@ export class SecurityQuestionsHandler {
     
     for (const [keyword, answer] of Object.entries(this.questionMap)) {
       if (normalizedQuestion.includes(keyword)) {
-        console.log(`[SecurityQuestions] ✅ Match found: keyword="${keyword}"`);
+        console.log(`[SecurityQuestions] Match found: keyword="${keyword}"`);
         return { answer, matchedKeyword: keyword };
       }
     }
     
     // Log the FULL question text so user can configure the right keyword
     const keywords = Object.keys(this.questionMap);
-    console.log(`[SecurityQuestions] ❌ NO MATCH for question:`);
+    console.log(`[SecurityQuestions] NO MATCH for question:`);
     console.log(`[SecurityQuestions]    FULL TEXT: "${questionText.trim()}"`);
     console.log(`[SecurityQuestions]    NORMALIZED: "${normalizedQuestion}"`);
     console.log(`[SecurityQuestions]    Your keywords: [${keywords.join(', ')}]`);

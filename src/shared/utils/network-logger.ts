@@ -1,9 +1,8 @@
 /**
  * Network Logger Utility
  * 
- * Captures all HTTP requests and responses during Playwright sessions
- * for analysis of bank authentication flows. Useful for understanding
- * what's needed to implement pure fetch-based alternatives.
+ * Captures HTTP requests and responses during Playwright sessions
+ * for analysis of bank authentication flows.
  */
 
 import { Page, Request, Response } from 'playwright';
@@ -34,21 +33,15 @@ export interface NetworkLogEntry {
 }
 
 export interface NetworkLoggerConfig {
-  /** Log to console in real-time */
   logToConsole?: boolean;
-  /** Save captured data to JSON file */
   saveToFile?: boolean;
-  /** Output file path */
   outputPath?: string;
-  /** Only capture document/XHR/fetch requests (skip images, fonts, etc) */
   filterEssentialOnly?: boolean;
-  /** Redact sensitive values in logs */
   redactSensitive?: boolean;
-  /** List of field names to redact (passwords, tokens, etc) */
   sensitiveFields?: string[];
 }
 
-const DEFAULT_SENSITIVE_FIELDS = [
+const sensitiveFieldPatterns = [
   'password', 'clave', 'txtClave', 'txtPassword', 'pwd', 'pass',
   'token', 'authorization', 'auth', 'secret', 'key', 'apikey',
   'cookie', 'session', 'csrf', '__VIEWSTATE', '__EVENTVALIDATION'
@@ -61,31 +54,27 @@ export class NetworkLogger {
 
   constructor(config: NetworkLoggerConfig = {}) {
     this.config = {
-      logToConsole: true,
+      logToConsole: false,
       saveToFile: true,
       outputPath: `network-capture-${Date.now()}.json`,
       filterEssentialOnly: true,
       redactSensitive: true,
-      sensitiveFields: [...DEFAULT_SENSITIVE_FIELDS, ...(config.sensitiveFields || [])],
+      sensitiveFields: [...sensitiveFieldPatterns, ...(config.sensitiveFields || [])],
       ...config
     };
   }
 
-  /**
-   * Attach listeners to a Playwright page to capture all network activity
-   */
   attach(page: Page): void {
     page.on('request', (request) => this.onRequest(request));
     page.on('response', (response) => this.onResponse(response));
     
     if (this.config.logToConsole) {
-      console.log('🔍 Network logger attached - capturing all requests...\n');
+      console.log('[NetworkLogger] attached');
     }
   }
 
   private shouldCapture(resourceType: string): boolean {
     if (!this.config.filterEssentialOnly) return true;
-    
     const essentialTypes = ['document', 'xhr', 'fetch', 'script'];
     return essentialTypes.includes(resourceType);
   }
@@ -99,11 +88,10 @@ export class NetworkLogger {
     );
     
     if (shouldRedact && value.length > 0) {
-      // Show first 3 chars and last 3 chars for debugging
       if (value.length > 10) {
-        return `${value.substring(0, 3)}...<redacted>...${value.substring(value.length - 3)}`;
+        return `${value.substring(0, 3)}***${value.substring(value.length - 3)}`;
       }
-      return '<redacted>';
+      return '***';
     }
     
     return value;
@@ -121,7 +109,6 @@ export class NetworkLogger {
     if (!postData) return undefined;
     
     try {
-      // Try URL-encoded form data
       const params = new URLSearchParams(postData);
       const fields: Record<string, string> = {};
       
@@ -137,7 +124,6 @@ export class NetworkLogger {
 
   private onRequest(request: Request): void {
     const resourceType = request.resourceType();
-    
     if (!this.shouldCapture(resourceType)) return;
     
     const url = request.url();
@@ -151,42 +137,20 @@ export class NetworkLogger {
       method,
       resourceType,
       headers: this.redactHeaders(headers),
-      postData: postData ? (this.config.redactSensitive ? '<see postDataFields>' : postData) : undefined,
+      postData: postData ? (this.config.redactSensitive ? undefined : postData) : undefined,
       postDataFields: this.parsePostData(postData)
     };
     
-    // Store for matching with response
     this.requestMap.set(`${method}:${url}`, captured);
     
     if (this.config.logToConsole) {
-      console.log(`\n${'─'.repeat(80)}`);
-      console.log(`📤 [REQ] ${method} ${url}`);
-      console.log(`   Type: ${resourceType}`);
-      
-      // Log important headers
-      const importantHeaders = ['content-type', 'cookie', 'authorization', 'referer'];
-      for (const header of importantHeaders) {
-        if (headers[header]) {
-          console.log(`   ${header}: ${this.redactValue(header, headers[header])}`);
-        }
-      }
-      
-      // Log POST data fields
-      if (captured.postDataFields) {
-        console.log(`   POST fields:`);
-        for (const [key, value] of Object.entries(captured.postDataFields)) {
-          // Truncate long values for readability
-          const displayValue = value.length > 50 ? value.substring(0, 50) + '...' : value;
-          console.log(`      ${key}: ${displayValue}`);
-        }
-      }
+      console.log(`[REQ] ${method} ${url.substring(0, 80)}${url.length > 80 ? '...' : ''}`);
     }
   }
 
   private onResponse(response: Response): void {
     const request = response.request();
     const resourceType = request.resourceType();
-    
     if (!this.shouldCapture(resourceType)) return;
     
     const url = response.url();
@@ -204,18 +168,13 @@ export class NetworkLogger {
       contentType: headers['content-type']
     };
     
-    // Match with request
     const requestKey = `${method}:${url}`;
     const matchedRequest = this.requestMap.get(requestKey);
     
     if (matchedRequest) {
-      this.entries.push({
-        request: matchedRequest,
-        response: captured
-      });
+      this.entries.push({ request: matchedRequest, response: captured });
       this.requestMap.delete(requestKey);
     } else {
-      // Request might have been redirected, store response anyway
       this.entries.push({
         request: {
           timestamp: captured.timestamp,
@@ -229,40 +188,14 @@ export class NetworkLogger {
     }
     
     if (this.config.logToConsole) {
-      const statusEmoji = status >= 200 && status < 300 ? '✅' : 
-                          status >= 300 && status < 400 ? '↪️' : '❌';
-      
-      console.log(`📥 [RES] ${statusEmoji} ${status} ${statusText}`);
-      console.log(`   Content-Type: ${headers['content-type'] || 'unknown'}`);
-      
-      // Log Set-Cookie headers (important for auth flow)
-      const setCookies = Object.entries(headers).filter(([k]) => k.toLowerCase() === 'set-cookie');
-      if (setCookies.length > 0) {
-        console.log(`   🍪 Set-Cookie headers found:`);
-        for (const [, value] of setCookies) {
-          // Parse cookie name from value
-          const cookieName = value.split('=')[0];
-          console.log(`      ${cookieName}=<redacted>; ${value.split(';').slice(1).join(';')}`);
-        }
-      }
-      
-      // Log Location header for redirects
-      if (headers['location']) {
-        console.log(`   📍 Location: ${headers['location']}`);
-      }
+      console.log(`[RES] ${status} ${url.substring(0, 80)}${url.length > 80 ? '...' : ''}`);
     }
   }
 
-  /**
-   * Get all captured entries
-   */
   getEntries(): NetworkLogEntry[] {
     return [...this.entries];
   }
 
-  /**
-   * Get summary of the captured flow
-   */
   getSummary(): { 
     totalRequests: number;
     documents: number;
@@ -274,7 +207,6 @@ export class NetworkLogger {
     const xhrFetch = this.entries.filter(e => ['xhr', 'fetch'].includes(e.request.resourceType)).length;
     const postRequests = this.entries.filter(e => e.request.method === 'POST').length;
     
-    // Find auth-related URLs
     const authKeywords = ['login', 'auth', 'session', 'contrasena', 'clave', 'password'];
     const authRelated = this.entries
       .filter(e => authKeywords.some(kw => e.request.url.toLowerCase().includes(kw)))
@@ -289,9 +221,6 @@ export class NetworkLogger {
     };
   }
 
-  /**
-   * Save captured data to file
-   */
   save(outputPath?: string): string {
     const path = outputPath || this.config.outputPath;
     
@@ -304,31 +233,18 @@ export class NetworkLogger {
     writeFileSync(path, JSON.stringify(output, null, 2));
     
     if (this.config.logToConsole) {
-      console.log(`\n${'═'.repeat(80)}`);
-      console.log(`💾 Network capture saved to: ${path}`);
-      console.log(`📊 Summary:`);
-      console.log(`   Total requests: ${output.summary.totalRequests}`);
-      console.log(`   Documents: ${output.summary.documents}`);
-      console.log(`   XHR/Fetch: ${output.summary.xhrFetch}`);
-      console.log(`   POST requests: ${output.summary.postRequests}`);
-      console.log(`   Auth-related URLs: ${output.summary.authRelated.join(', ')}`);
+      console.log(`[NetworkLogger] saved to: ${path} (${this.entries.length} entries)`);
     }
     
     return path;
   }
 
-  /**
-   * Clear all captured entries
-   */
   clear(): void {
     this.entries = [];
     this.requestMap.clear();
   }
 }
 
-/**
- * Factory function to create and attach a network logger to a page
- */
 export function createNetworkLogger(page: Page, config?: NetworkLoggerConfig): NetworkLogger {
   const logger = new NetworkLogger(config);
   logger.attach(page);

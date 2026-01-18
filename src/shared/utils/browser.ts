@@ -22,14 +22,13 @@ export class BrowserManager {
   }
 
   private async setupResourceBlocking(context: BrowserContext): Promise<void> {
-    console.log('⚡ Configurando bloqueo de recursos para mayor velocidad...');
+    console.log('[browser] setting up resource blocking');
     
-    // Bloquear recursos innecesarios
     await context.route('**/*', (route) => {
       const url = route.request().url();
       const resourceType = route.request().resourceType();
       
-      // Bloquear imágenes (excepto algunas críticas)
+      // Block images (except critical ones)
       if (resourceType === 'image') {
         if (!url.includes('logo') && !url.includes('icon')) {
           route.abort();
@@ -37,13 +36,13 @@ export class BrowserManager {
         }
       }
       
-      // Bloquear fuentes
+      // Block fonts
       if (resourceType === 'font') {
         route.abort();
         return;
       }
       
-      // Bloquear algunos CSS no críticos
+      // Block non-critical CSS
       if (resourceType === 'stylesheet') {
         if (url.includes('bootstrap') || url.includes('jquery-ui') || url.includes('theme')) {
           route.abort();
@@ -51,7 +50,7 @@ export class BrowserManager {
         }
       }
       
-      // Bloquear analytics y tracking
+      // Block analytics and tracking
       if (url.includes('google-analytics') || 
           url.includes('gtag') || 
           url.includes('facebook') ||
@@ -62,20 +61,18 @@ export class BrowserManager {
         return;
       }
       
-      // Continue with the request
       route.continue();
     });
   }
 
   async launch(): Promise<void> {
     if (BrowserManager.sharedBrowser && BrowserManager.sharedContext) {
-      console.log('⚡ Reutilizando navegador ya iniciado (optimización de velocidad)');
+      console.log('[browser] reusing existing instance');
       return;
     }
 
-    console.log('🚀 Iniciando navegador optimizado...');
+    console.log('[browser] launching...');
     
-    // Configuration optimized for speed
     const launchOptions = {
       headless: this.config.headless,
       args: [
@@ -110,18 +107,14 @@ export class BrowserManager {
       viewport: this.config.viewport,
       ignoreHTTPSErrors: true,
       javaScriptEnabled: true,
-      // Optimizaciones adicionales
       reducedMotion: 'reduce' as const,
-      // Deshabilitar notificaciones y permisos innecesarios
       permissions: [],
     };
 
     BrowserManager.sharedContext = await BrowserManager.sharedBrowser.newContext(contextOptions);
-    
-    // Configurar bloqueo de recursos
     await this.setupResourceBlocking(BrowserManager.sharedContext);
     
-    console.log('✅ Navegador optimizado iniciado y listo');
+    console.log('[browser] ready');
   }
 
   async newPage(): Promise<Page> {
@@ -129,10 +122,9 @@ export class BrowserManager {
       throw new Error('Browser context not initialized. Call launch() first.');
     }
     
-    console.log('📄 Creando nueva página optimizada...');
+    console.log('[browser] creating page');
     const page = await BrowserManager.sharedContext.newPage();
     
-    // Configuraciones adicionales por página
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'es-VE,es;q=0.9,en;q=0.8',
       'Accept-Encoding': 'gzip, deflate, br',
@@ -140,9 +132,8 @@ export class BrowserManager {
       'Pragma': 'no-cache'
     });
     
-    // Timeout más agresivo para mayor velocidad
-    page.setDefaultTimeout(15000); // 15 segundos en lugar de 30
-    page.setDefaultNavigationTimeout(20000); // 20 segundos
+    page.setDefaultTimeout(15000);
+    page.setDefaultNavigationTimeout(20000);
     
     return page;
   }
@@ -150,9 +141,8 @@ export class BrowserManager {
   async close(): Promise<void> {
     BrowserManager.instanceCount--;
     
-    // Solo cerrar el navegador cuando no hay más instancias
     if (BrowserManager.instanceCount <= 0) {
-      console.log('🧹 Cerrando navegador compartido...');
+      console.log('[browser] closing');
       
       if (BrowserManager.sharedContext) {
         await BrowserManager.sharedContext.close();
@@ -166,7 +156,7 @@ export class BrowserManager {
       
       BrowserManager.instanceCount = 0;
     } else {
-      console.log(`⚡ Manteniendo navegador abierto (${BrowserManager.instanceCount} instancias activas)`);
+      console.log(`[browser] keeping open (${BrowserManager.instanceCount} instances)`);
     }
   }
 
@@ -178,9 +168,8 @@ export class BrowserManager {
     return BrowserManager.sharedContext;
   }
 
-  // Método estático para forzar el cierre del navegador
   static async forceClose(): Promise<void> {
-    console.log('🔴 Forzando cierre del navegador...');
+    console.log('[browser] force closing');
     
     if (BrowserManager.sharedContext) {
       await BrowserManager.sharedContext.close();
@@ -195,16 +184,14 @@ export class BrowserManager {
     BrowserManager.instanceCount = 0;
   }
 
-  // Method to check if the browser is active
   static isActive(): boolean {
     return BrowserManager.sharedBrowser !== null && BrowserManager.sharedContext !== null;
   }
 
-  // Method to get statistics
   static getStats(): { browserActive: boolean; instanceCount: number } {
     return {
       browserActive: BrowserManager.isActive(),
       instanceCount: BrowserManager.instanceCount
     };
   }
-} 
+}

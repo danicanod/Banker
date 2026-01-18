@@ -42,7 +42,6 @@ import {
   findBestTransactionPostBack,
   buildPostBackFormData,
   parseAccountsFromDashboard,
-  parseMovementsTable,
   type AspNetFormFields,
   type PostBackAction
 } from './form-parser.js';
@@ -184,9 +183,9 @@ export class BanescoHttpClient {
         Object.entries(config.cookies).forEach(([name, value]) => this.cookies.set(name, value));
       }
       this.isAuthenticated = config.skipLogin ?? false;
-      this.log(`🏦 BanescoHttpClient initialized with ${this.cookies.size} pre-set cookies`);
+      this.log(`BanescoHttpClient initialized with ${this.cookies.size} pre-set cookies`);
     } else {
-      this.log(`🏦 BanescoHttpClient initialized`);
+      this.log(`BanescoHttpClient initialized`);
     }
     
     this.log(`   Username: ${credentials.username.substring(0, 3)}***`);
@@ -207,7 +206,7 @@ export class BanescoHttpClient {
   async login(): Promise<BanescoHttpLoginResult> {
     // If already authenticated via imported cookies, skip login
     if (this.isAuthenticated && this.cookies.size > 0) {
-      this.log('✅ Already authenticated via imported cookies');
+      this.log('Already authenticated via imported cookies');
       return {
         success: true,
         message: 'Already authenticated via imported cookies',
@@ -217,35 +216,35 @@ export class BanescoHttpClient {
     }
     
     this.log('🚀 Starting Banesco HTTP login...');
-    this.log('⚠️  WARNING: Pure HTTP login may fail. Banesco requires JavaScript.');
+    this.log(' WARNING: Pure HTTP login may fail. Banesco requires JavaScript.');
     const startTime = Date.now();
 
     try {
       // Step 1: Load login page and get initial cookies + form fields
-      this.log('📍 Step 1: Loading login page...');
+      this.log('Step 1: Loading login page...');
       const loginPageData = await this.loadLoginPage();
       
       // Step 2: Submit username
-      this.log('📍 Step 2: Submitting username...');
+      this.log('Step 2: Submitting username...');
       const usernameResult = await this.submitUsername(loginPageData.formFields, loginPageData.allHiddenFields);
       
       // Step 3: Handle security questions (if redirected there)
-      this.log('📍 Step 3: Handling security questions...');
+      this.log('Step 3: Handling security questions...');
       const securityResult = await this.submitSecurityQuestions(usernameResult.nextUrl);
       
       // Step 4: Submit password
-      this.log('📍 Step 4: Submitting password...');
+      this.log('Step 4: Submitting password...');
       const passwordResult = await this.submitPassword(securityResult.nextUrl);
       
       // Step 5: Verify authentication
-      this.log('📍 Step 5: Verifying authentication...');
+      this.log('Step 5: Verifying authentication...');
       const verified = await this.verifyAuthentication(passwordResult.nextUrl);
       
       const elapsed = Date.now() - startTime;
       
       if (verified.isAuthenticated) {
         this.isAuthenticated = true;
-        this.log(`✅ Login successful in ${elapsed}ms`);
+        this.log(`Login successful in ${elapsed}ms`);
         
         return {
           success: true,
@@ -263,15 +262,16 @@ export class BanescoHttpClient {
         };
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       const elapsed = Date.now() - startTime;
-      this.log(`❌ Login failed after ${elapsed}ms: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Login failed after ${elapsed}ms: ${message}`);
       
       return {
         success: false,
-        message: error.message,
+        message,
         authenticated: false,
-        error: error.message
+        error: message
       };
     }
   }
@@ -297,7 +297,7 @@ export class BanescoHttpClient {
     }
 
     try {
-      this.log('📊 Fetching transactions...');
+      this.log('Fetching transactions...');
 
       // Preferred: accounts -> per-account movements
       const accountsResult = await this.getAccounts();
@@ -310,7 +310,7 @@ export class BanescoHttpClient {
           }
         }
 
-        this.log(`✅ Found ${all.length} transactions (accounts-based)`);
+        this.log(`Found ${all.length} transactions (accounts-based)`);
         return {
           success: true,
           message: `Found ${all.length} transactions (accounts-based)`,
@@ -319,7 +319,7 @@ export class BanescoHttpClient {
       }
 
       // If we couldn't discover accounts, try direct movements page (first available account)
-      this.log('📍 Accounts not found; trying direct movements page...');
+      this.log('Accounts not found; trying direct movements page...');
       const directMov = await this.getAccountMovements('');
       if (directMov.success) {
         return {
@@ -330,10 +330,10 @@ export class BanescoHttpClient {
       }
 
       // Legacy fallback: try dashboard postback navigation (older Banesco layouts)
-      this.log('📍 Falling back to legacy dashboard postback navigation...');
+      this.log('Falling back to legacy dashboard postback navigation...');
       const dashboardHtml = await this.fetchPage(BANESCO_URLS.DASHBOARD);
 
-      let { rows, tableFound } = parseTransactionsTable(dashboardHtml);
+      const { rows, tableFound } = parseTransactionsTable(dashboardHtml);
       if (tableFound && rows.length > 0) {
         const transactions = this.parseTransactionRows(rows);
         return {
@@ -378,13 +378,14 @@ export class BanescoHttpClient {
         transactions: legacyTransactions
       };
 
-    } catch (error: any) {
-      this.log(`❌ Error fetching transactions: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Error fetching transactions: ${message}`);
       return {
         success: false,
-        message: error.message,
+        message,
         transactions: [],
-        error: error.message
+        error: message
       };
     }
   }
@@ -416,8 +417,9 @@ export class BanescoHttpClient {
       
       return await response.text();
       
-    } catch (error: any) {
-      this.log(`   ❌ Postback execution failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`   Postback execution failed: ${message}`);
       return null;
     }
   }
@@ -446,7 +448,7 @@ export class BanescoHttpClient {
    */
   importCookiesFromPlaywright(playwrightCookies: ReadonlyArray<{ name: string; value: string }>): void {
     if (!playwrightCookies || !Array.isArray(playwrightCookies)) {
-      this.log('⚠️  No cookies provided to import');
+      this.log(' No cookies provided to import');
       return;
     }
     
@@ -460,7 +462,7 @@ export class BanescoHttpClient {
     }
     
     this.isAuthenticated = importedCount > 0;
-    this.log(`✅ Imported ${importedCount} cookies from Playwright (${playwrightCookies.length} provided)`);
+    this.log(`Imported ${importedCount} cookies from Playwright (${playwrightCookies.length} provided)`);
   }
 
   /**
@@ -495,7 +497,7 @@ export class BanescoHttpClient {
 
       // If we hit an error or login container, fall back to the legacy dashboard
       if (this.isBanescoErrorPage(html) || this.looksLikeLoginContainer(html)) {
-        this.log('   ⚠️ Accounts page looks invalid (error/login). Falling back to legacy dashboard...');
+        this.log('   Accounts page looks invalid (error/login). Falling back to legacy dashboard...');
         html = await this.fetchPage(BANESCO_URLS.DASHBOARD);
       }
 
@@ -517,7 +519,7 @@ export class BanescoHttpClient {
         postbackArg: acc.postbackArg
       }));
       
-      this.log(`✅ Found ${accounts.length} accounts`);
+      this.log(`Found ${accounts.length} accounts`);
       
       return {
         success: true,
@@ -525,13 +527,14 @@ export class BanescoHttpClient {
         accounts
       };
 
-    } catch (error: any) {
-      this.log(`❌ Error fetching accounts: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Error fetching accounts: ${message}`);
       return {
         success: false,
-        message: error.message,
+        message,
         accounts: [],
-        error: error.message
+        error: message
       };
     }
   }
@@ -553,7 +556,7 @@ export class BanescoHttpClient {
 
     try {
       const label = accountNumber ? accountNumber : '(auto)';
-      this.log(`📊 Fetching movements for ${label}...`);
+      this.log(`Fetching movements for ${label}...`);
 
       // Step 1: Load movements page directly (newer layouts + iframe container make Default.aspx unreliable)
       this.log(`   Step 1: Loading movements page...`);
@@ -599,7 +602,7 @@ export class BanescoHttpClient {
       const transactions = this.parseMovementsFromHtml(transactionsHtml, accountNumber);
       
       if (transactions.length > 0) {
-        this.log(`✅ Found ${transactions.length} transactions`);
+        this.log(`Found ${transactions.length} transactions`);
         return {
           success: true,
           message: `Found ${transactions.length} movements`,
@@ -611,7 +614,7 @@ export class BanescoHttpClient {
       // Check for "no movements" message
       const pageText = transactionsHtml.toLowerCase();
       if (pageText.includes('no posee movimientos') || pageText.includes('no hay movimientos')) {
-        this.log(`   ℹ️ No movements in selected period`);
+        this.log(`   No movements in selected period`);
         return {
           success: true,
           message: 'No movements found in the selected period',
@@ -620,7 +623,7 @@ export class BanescoHttpClient {
         };
       }
       
-      this.log(`   ⚠️ No transactions parsed from result`);
+      this.log(`   No transactions parsed from result`);
       return {
         success: true,
         message: 'Transactions page loaded but no data found',
@@ -628,14 +631,15 @@ export class BanescoHttpClient {
         transactions: []
       };
 
-    } catch (error: any) {
-      this.log(`❌ Error: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Error: ${message}`);
       return {
         success: false,
-        message: error.message,
+        message,
         accountNumber,
         transactions: [],
-        error: error.message
+        error: message
       };
     }
   }
@@ -687,12 +691,12 @@ export class BanescoHttpClient {
 
         if (accountField && chosen) {
           formData[accountField] = chosen.value;
-          this.log(`   ✅ Selected account option: "${chosen.text}" (${chosen.value})`);
+          this.log(`   Selected account option: "${chosen.text}" (${chosen.value})`);
         } else {
-          this.log(`   ⚠️ Account dropdown found but could not select an option`);
+          this.log(`   Account dropdown found but could not select an option`);
         }
       } else {
-        this.log(`   ⚠️ No account dropdown found (ddlCuenta)`);
+        this.log(`   No account dropdown found (ddlCuenta)`);
       }
 
       // Discover period dropdown (ddlPeriodo) and try multiple options (widen range if month has no txns)
@@ -815,8 +819,9 @@ export class BanescoHttpClient {
       // Return last attempt's result (or null if no attempts)
       return null;
       
-    } catch (error: any) {
-      this.log(`   ❌ Form submit failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`   Form submit failed: ${message}`);
       return null;
     }
   }
@@ -849,78 +854,6 @@ export class BanescoHttpClient {
   }
 
   /**
-   * Find postback action to select a specific account
-   */
-  private findAccountPostback(html: string, accountNumber: string): PostBackAction | null {
-    const $ = cheerio.load(html);
-    
-    let result: PostBackAction | null = null;
-    
-    $('a').each((_: number, link: any) => {
-      const $link = $(link);
-      const text = $link.text().trim();
-      const href = $link.attr('href') || '';
-      const onclick = $link.attr('onclick') || '';
-      
-      // Check if this link relates to our account
-      if (text.includes(accountNumber) || accountNumber.includes(text.replace(/\D/g, '').substring(0, 15))) {
-        const postbackMatch = (href + ' ' + onclick).match(/__doPostBack\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]?\s*\)/);
-        if (postbackMatch) {
-          result = {
-            target: postbackMatch[1],
-            argument: postbackMatch[2],
-            text: text.substring(0, 50),
-            score: 100
-          };
-          return false; // break
-        }
-      }
-    });
-    
-    return result;
-  }
-
-  /**
-   * Find postback for "Últimos Movimientos" or similar
-   */
-  private findMovimientosPostback(html: string): PostBackAction | null {
-    const $ = cheerio.load(html);
-    
-    const keywords = ['movimientos', 'estado de cuenta', 'transacciones', 'historial', 'detalle'];
-    let result: PostBackAction | null = null;
-    let bestScore = 0;
-    
-    $('a').each((_: number, link: any) => {
-      const $link = $(link);
-      const text = $link.text().toLowerCase().trim();
-      const href = $link.attr('href') || '';
-      const onclick = $link.attr('onclick') || '';
-      
-      let score = 0;
-      for (const keyword of keywords) {
-        if (text.includes(keyword)) {
-          score += 10;
-        }
-      }
-      
-      if (score > bestScore) {
-        const postbackMatch = (href + ' ' + onclick).match(/__doPostBack\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]*)['"]?\s*\)/);
-        if (postbackMatch) {
-          bestScore = score;
-          result = {
-            target: postbackMatch[1],
-            argument: postbackMatch[2],
-            text: text.substring(0, 50),
-            score
-          };
-        }
-      }
-    });
-    
-    return result;
-  }
-
-  /**
    * Parse movements/transactions from HTML page
    * Uses flexible parsing approach similar to the Playwright scraper
    */
@@ -941,12 +874,12 @@ export class BanescoHttpClient {
     ];
     
     if (noMovementsPatterns.some(pattern => pageText.includes(pattern))) {
-      this.log('   ℹ️ No movements message found on page');
+      this.log('   No movements message found on page');
       return [];
     }
     
     // Look for ALL tables and analyze each one
-    $('table').each((_: number, table: any) => {
+    $('table').each((_, table) => {
       const $table = $(table);
       const rows = $table.find('tr');
       
@@ -959,15 +892,15 @@ export class BanescoHttpClient {
       
       if (!containsTransactionHeaders) return;
       
-      this.log(`   📊 Found table with transaction headers: ${headerText.substring(0, 50)}...`);
+      this.log(`   Found table with transaction headers: ${headerText.substring(0, 50)}...`);
       
       // Parse data rows (skip header)
-      rows.slice(1).each((_: number, row: any) => {
-        const $row = $(row);
+      rows.slice(1).each((_, rowEl) => {
+        const $row = $(rowEl);
         const cells: string[] = [];
         
-        $row.find('td').each((_: number, cell: any) => {
-          cells.push($(cell).text().trim());
+        $row.find('td').each((_, cellEl) => {
+          cells.push($(cellEl).text().trim());
         });
         
         if (cells.length < 3) return;
@@ -990,7 +923,7 @@ export class BanescoHttpClient {
     // Find date (DD/MM/YYYY format)
     let date: string | null = null;
     for (const cell of cells) {
-      const dateMatch = cell.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      const dateMatch = cell.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
       if (dateMatch) {
         const [, day, month, year] = dateMatch;
         const fullYear = year.length === 2 ? `20${year}` : year;
@@ -1005,7 +938,7 @@ export class BanescoHttpClient {
     for (const cell of cells) {
       // Look for numeric cells with decimal separators
       const cleanCell = cell.replace(/\s/g, '');
-      if (/^[\d\.,\-]+$/.test(cleanCell) && (cleanCell.includes(',') || cleanCell.includes('.'))) {
+      if (/^[\d.,-]+$/.test(cleanCell) && (cleanCell.includes(',') || cleanCell.includes('.'))) {
         amountCell = cell;
         // Parse Spanish format (1.234,56)
         const normalized = cleanCell.replace(/\./g, '').replace(/,/g, '.');
@@ -1037,8 +970,8 @@ export class BanescoHttpClient {
     for (const cell of cells) {
       const trimmed = cell.trim();
       // Skip if it looks like date, amount, or D/C
-      if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(trimmed)) continue;
-      if (/^[\d\.,\-]+$/.test(trimmed.replace(/\s/g, ''))) continue;
+      if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(trimmed)) continue;
+      if (/^[\d.,-]+$/.test(trimmed.replace(/\s/g, ''))) continue;
       if (/^[DC]$/i.test(trimmed)) continue;
       
       if (trimmed.length > description.length && trimmed.length > 3) {
@@ -1164,7 +1097,7 @@ export class BanescoHttpClient {
   }> {
     // Step 1: Hit the main login page to get session cookie
     const mainPageHtml = await this.fetchPage(BANESCO_URLS.LOGIN_PAGE);
-    this.log(`   ✅ Got main login page (${mainPageHtml.length} chars)`);
+    this.log(`   Got main login page (${mainPageHtml.length} chars)`);
     
     // Step 2: Load the iframe content (inicio.aspx -> redirects to LoginDNA.aspx)
     // Use Referer from the main page to simulate browser iframe load
@@ -1178,7 +1111,7 @@ export class BanescoHttpClient {
       }
     });
     let iframeHtml = await inicioResponse.text();
-    this.log(`   ✅ Got iframe content (${iframeHtml.length} chars)`);
+    this.log(`   Got iframe content (${iframeHtml.length} chars)`);
     
     // Check for the actual form content (various field name patterns)
     const hasUsernameField = iframeHtml.includes('txtloginname') || 
@@ -1187,7 +1120,7 @@ export class BanescoHttpClient {
     
     if (!hasUsernameField) {
       // Try direct LoginDNA URL if inicio didn't work
-      this.log(`   ⚠️  Form not found in inicio response, trying direct URL...`);
+      this.log(`    Form not found in inicio response, trying direct URL...`);
       
       const directResponse = await this.makeRequest(BANESCO_URLS.LOGIN_IFRAME_FORM, {
         redirect: 'follow',
@@ -1199,7 +1132,7 @@ export class BanescoHttpClient {
         }
       });
       iframeHtml = await directResponse.text();
-      this.log(`   ✅ Got direct LoginDNA content (${iframeHtml.length} chars)`);
+      this.log(`   Got direct LoginDNA content (${iframeHtml.length} chars)`);
     }
     
     // Final check for form content
@@ -1211,13 +1144,13 @@ export class BanescoHttpClient {
       // Save HTML for debugging
       const fs = await import('fs');
       fs.writeFileSync('debug-banesco-login.html', iframeHtml);
-      this.log(`   ⚠️  Saved HTML to debug-banesco-login.html`);
-      this.log(`   ⚠️  HTML preview: ${iframeHtml.substring(0, 500)}...`);
+      this.log(`    Saved HTML to debug-banesco-login.html`);
+      this.log(`    HTML preview: ${iframeHtml.substring(0, 500)}...`);
       
       throw new Error('Login form not found. The Banesco site may require JavaScript or a browser context.');
     }
     
-    this.log(`   ✅ Found login form in HTML`);
+    this.log(`   Found login form in HTML`);
     
     const parsed = parseLoginPage(iframeHtml);
     
@@ -1226,12 +1159,12 @@ export class BanescoHttpClient {
       const viewStateMatch = iframeHtml.match(/name="__VIEWSTATE"[^>]*value="([^"]+)"/);
       if (viewStateMatch && viewStateMatch[1].length > parsed.formFields.__VIEWSTATE.length) {
         parsed.formFields.__VIEWSTATE = viewStateMatch[1];
-        this.log(`   ✅ Found longer VIEWSTATE via regex (${parsed.formFields.__VIEWSTATE.length} chars)`);
+        this.log(`   Found longer VIEWSTATE via regex (${parsed.formFields.__VIEWSTATE.length} chars)`);
       }
     }
     
-    this.log(`   ✅ Got VIEWSTATE (${parsed.formFields.__VIEWSTATE.length} chars)`);
-    this.log(`   ✅ Hidden fields: ${Object.keys(parsed.allHiddenFields).length}`);
+    this.log(`   Got VIEWSTATE (${parsed.formFields.__VIEWSTATE.length} chars)`);
+    this.log(`   Hidden fields: ${Object.keys(parsed.allHiddenFields).length}`);
     
     return {
       formFields: parsed.formFields,
@@ -1278,7 +1211,7 @@ export class BanescoHttpClient {
     
     if (response.status === 302 && location) {
       const nextUrl = new URL(location, BANESCO_URLS.BASE).toString();
-      this.log(`   ✅ Username submitted, redirecting to: ${nextUrl.split('/').pop()}`);
+      this.log(`   Username submitted, redirecting to: ${nextUrl.split('/').pop()}`);
       return { nextUrl };
     }
     
@@ -1287,19 +1220,19 @@ export class BanescoHttpClient {
     
     // Check if we got an error page
     if (html.includes('error') || html.includes('Error')) {
-      this.log(`   ⚠️  Response may contain an error`);
+      this.log(`    Response may contain an error`);
     }
     
     // Try to find the form action for next step
     const formActionMatch = html.match(/action="([^"]+)"/);
     if (formActionMatch) {
       const nextUrl = new URL(formActionMatch[1], BANESCO_URLS.BASE).toString();
-      this.log(`   ✅ Username submitted, next form at: ${nextUrl.split('/').pop()}`);
+      this.log(`   Username submitted, next form at: ${nextUrl.split('/').pop()}`);
       return { nextUrl };
     }
     
     // Default to security questions URL
-    this.log(`   ⚠️  No redirect found, defaulting to security questions`);
+    this.log(`    No redirect found, defaulting to security questions`);
     return { nextUrl: BANESCO_URLS.SECURITY_QUESTIONS };
   }
 
@@ -1354,7 +1287,7 @@ export class BanescoHttpClient {
       ? new URL(location, BANESCO_URLS.BASE).toString()
       : BANESCO_URLS.PASSWORD;
     
-    this.log(`   ✅ Security questions answered, redirecting to: ${nextUrl.split('/').pop()}`);
+    this.log(`   Security questions answered, redirecting to: ${nextUrl.split('/').pop()}`);
     
     return { nextUrl };
   }
@@ -1397,13 +1330,13 @@ export class BanescoHttpClient {
     // The response might be HTML with a redirect, or a 302
     if (location) {
       const nextUrl = new URL(location, BANESCO_URLS.BASE).toString();
-      this.log(`   ✅ Password submitted, redirecting to: ${nextUrl.split('/').pop()}`);
+      this.log(`   Password submitted, redirecting to: ${nextUrl.split('/').pop()}`);
       return { nextUrl };
     }
     
     // If no redirect header, the page may contain a meta refresh or JS redirect
     // In practice, we should end up at Default.aspx after following redirects
-    this.log(`   ✅ Password submitted, navigating to dashboard...`);
+    this.log(`   Password submitted, navigating to dashboard...`);
     return { nextUrl: BANESCO_URLS.DASHBOARD };
   }
 
@@ -1416,9 +1349,9 @@ export class BanescoHttpClient {
     const parsed = parseDashboardPage(html);
     
     if (parsed.isAuthenticated) {
-      this.log(`   ✅ Authentication verified (found ${parsed.menuLinks.length} menu links)`);
+      this.log(`   Authentication verified (found ${parsed.menuLinks.length} menu links)`);
     } else {
-      this.log(`   ❌ Authentication not verified`);
+      this.log(`   Authentication not verified`);
     }
     
     return {
@@ -1524,9 +1457,9 @@ export class BanescoHttpClient {
       
       return response;
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Request timeout after ${this.config.timeout}ms`);
       }
       throw error;
@@ -1621,7 +1554,7 @@ export class BanescoHttpClient {
 
   private findDateInRow(row: string[]): string | null {
     for (const cell of row) {
-      if (/\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(cell)) {
+      if (/\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(cell)) {
         return cell;
       }
     }
@@ -1630,7 +1563,7 @@ export class BanescoHttpClient {
 
   private findAmountInRow(row: string[]): string | null {
     for (const cell of row) {
-      if (/[\d\.,]+/.test(cell) && (cell.includes(',') || cell.includes('.'))) {
+      if (/[\d.,]+/.test(cell) && (cell.includes(',') || cell.includes('.'))) {
         return cell;
       }
     }
@@ -1667,7 +1600,7 @@ export class BanescoHttpClient {
   }
 
   private parseDate(dateString: string): string {
-    const cleanDate = dateString.replace(/[^\d/\-]/g, '');
+    const cleanDate = dateString.replace(/[^\d/-]/g, '');
     
     if (cleanDate.includes('/')) {
       const parts = cleanDate.split('/');
