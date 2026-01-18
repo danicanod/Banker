@@ -57,7 +57,8 @@ src/
 ├── banks/                # Bank-specific implementations
 │   ├── banesco/          # Banesco hybrid client
 │   └── bnc/              # BNC pure HTTP client
-└── shared/               # Shared utilities and base classes
+├── shared/               # Shared utilities and base classes
+└── dev/                  # Development/debug tools (not part of library)
 ```
 
 ---
@@ -66,3 +67,4 @@ src/
 - [Back to root](../README.md)
 - [Banks overview](./banks/README.md)
 - [Shared utilities](./shared/README.md)
+- [Dev tools](./dev/README.md)
