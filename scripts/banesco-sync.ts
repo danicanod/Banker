@@ -1,9 +1,9 @@
 /**
  * Banesco Sync Script
  *
- * Syncs Banesco transactions to Convex using hybrid mode:
+ * Syncs Banesco transactions to Convex using BanescoClient (hybrid approach):
  * - Playwright for login (handles JS/iframes/security questions)
- * - HTTP for fast transaction fetching
+ * - HTTP for fetching transactions (faster, more stable)
  *
  * Usage:
  *   npx tsx scripts/banesco-sync.ts
@@ -26,8 +26,7 @@ import {
   ingestToConvex,
 } from "./_sync-utils.js";
 
-import { BanescoAuth } from "../src/banks/banesco/auth/banesco-auth.js";
-import { BanescoHttpClient } from "../src/banks/banesco/http/index.js";
+import { createBanescoClient } from "../src/banks/banesco/client.js";
 
 // ============================================================================
 // Types
@@ -40,8 +39,6 @@ interface Transaction {
   amount: number;
   type: "debit" | "credit";
   balance: number;
-  reference?: string;
-  accountId?: string;
 }
 
 // ============================================================================
@@ -60,98 +57,127 @@ async function main(): Promise<void> {
       BANESCO_SECURITY_QUESTIONS: string;
     }>(["CONVEX_URL", "BANESCO_USERNAME", "BANESCO_PASSWORD", "BANESCO_SECURITY_QUESTIONS"]);
 
-  const credentials = {
-    username: BANESCO_USERNAME,
-    password: BANESCO_PASSWORD,
-    securityQuestions: BANESCO_SECURITY_QUESTIONS,
-  };
+  const SYNC_VERBOSE = process.env.SYNC_VERBOSE === "true";
+  const useHeadless = process.env.BANESCO_HEADLESS !== "false";
 
-  let auth: BanescoAuth | null = null;
+  // Create client
+  const client = createBanescoClient(
+    {
+      username: BANESCO_USERNAME,
+      password: BANESCO_PASSWORD,
+      securityQuestions: BANESCO_SECURITY_QUESTIONS,
+    },
+    {
+      headless: useHeadless,
+      timeout: 60000,
+      debug: SYNC_VERBOSE,
+    }
+  );
 
   try {
-    // Step 1: Login with Playwright
+    // =========================================================================
+    // Step 1: Login (Playwright handles JS, iframes, security questions)
+    // =========================================================================
     log("🔐 Logging into Banesco...");
-    enableConsoleFilter();
+    if (!SYNC_VERBOSE) enableConsoleFilter();
 
-    auth = new BanescoAuth(credentials, {
-      headless: true,
-      timeout: 60000,
-    });
-
-    const loginResult = await auth.login();
+    const loginResult = await client.login();
     disableConsoleFilter();
 
     if (!loginResult.success) {
       throw new Error(`Login failed: ${loginResult.message}`);
     }
 
-    log("✅ Login successful\n");
+    log(`✅ Login successful (${loginResult.cookieCount} cookies)\n`);
 
-    // Step 2: Export cookies from authenticated session
-    const page = auth.getPage();
-    if (!page) throw new Error("No page after login");
+    // =========================================================================
+    // Step 2: Fetch accounts (HTTP)
+    // =========================================================================
+    log("📊 Fetching accounts...");
+    if (!SYNC_VERBOSE) enableConsoleFilter();
 
-    // Brief wait for cookies to stabilize (no URL wait - that's what caused timeouts)
-    await page.waitForTimeout(1500);
+    const accountsResult = await client.getAccounts();
+    disableConsoleFilter();
 
-    const cookies = await page.context().cookies();
-
-    // Step 3: Fetch transactions via HTTP
-    log("📊 Fetching transactions...");
-    enableConsoleFilter();
-
-    const httpClient = new BanescoHttpClient(credentials, {
-      skipLogin: true,
-      timeout: 30000,
-    });
-    httpClient.importCookiesFromPlaywright(cookies);
+    if (!accountsResult.success || accountsResult.accounts.length === 0) {
+      log("⚠️  Could not fetch accounts");
+      if (accountsResult.error) {
+        log(`   Error: ${accountsResult.error}`);
+      }
+    }
 
     const allTransactions: Transaction[] = [];
 
-    // Get accounts first
-    const accountsResult = await httpClient.getAccounts();
-
     if (accountsResult.success && accountsResult.accounts.length > 0) {
+      log(`📋 Found ${accountsResult.accounts.length} account(s):`);
       for (const account of accountsResult.accounts) {
-        const movementsResult = await httpClient.getAccountMovements(account.accountNumber);
+        log(`   - ${account.type}: ${account.accountNumber} (${account.currency} ${account.balance.toLocaleString()})`);
+      }
+      log("");
+
+      // =========================================================================
+      // Step 3: Fetch movements for each account (HTTP)
+      // =========================================================================
+      for (const account of accountsResult.accounts) {
+        log(`📥 Fetching movements for ${account.accountNumber}...`);
+        if (!SYNC_VERBOSE) enableConsoleFilter();
+
+        const movementsResult = await client.getAccountMovements(account.accountNumber);
+        disableConsoleFilter();
 
         if (movementsResult.success && movementsResult.transactions.length > 0) {
           for (const tx of movementsResult.transactions) {
             allTransactions.push({
-              id: makeTxnKey("banesco", tx),
+              id: makeTxnKey("banesco", {
+                date: tx.date,
+                description: tx.description,
+                amount: tx.amount,
+                type: tx.type,
+              }),
               date: tx.date || new Date().toISOString().split("T")[0],
               description: tx.description,
               amount: tx.amount,
               type: tx.type,
               balance: tx.balance || 0,
-              reference: tx.reference,
-              accountId: account.accountNumber,
             });
           }
+          log(`   ✅ ${movementsResult.transactions.length} transactions\n`);
+        } else {
+          log(`   ⚠️  No transactions found`);
+          if (movementsResult.error) {
+            log(`   Error: ${movementsResult.error}`);
+          }
+          log("");
         }
       }
     } else {
-      // Fallback to basic fetch
-      const result = await httpClient.getTransactions();
-      if (result.success) {
-        for (const tx of result.transactions) {
+      // Fallback: Try direct transaction fetch
+      log("📥 Trying direct transaction fetch...");
+      if (!SYNC_VERBOSE) enableConsoleFilter();
+
+      const txResult = await client.getTransactions();
+      disableConsoleFilter();
+
+      if (txResult.success && txResult.transactions.length > 0) {
+        for (const tx of txResult.transactions) {
           allTransactions.push({
-            id: makeTxnKey("banesco", tx),
+            id: makeTxnKey("banesco", {
+              date: tx.date,
+              description: tx.description,
+              amount: tx.amount,
+              type: tx.type,
+            }),
             date: tx.date || new Date().toISOString().split("T")[0],
             description: tx.description,
             amount: tx.amount,
             type: tx.type,
             balance: tx.balance || 0,
-            reference: tx.reference,
           });
         }
       }
     }
 
-    disableConsoleFilter();
-
-    const accountCount = accountsResult.accounts?.length || 1;
-    log(`✅ Found ${allTransactions.length} transactions from ${accountCount} account(s)\n`);
+    log(`✅ Found ${allTransactions.length} transactions\n`);
 
     if (allTransactions.length === 0) {
       log("⚠️  No transactions found.");
@@ -161,7 +187,9 @@ async function main(): Promise<void> {
     // Show preview
     printPreview(allTransactions);
 
+    // =========================================================================
     // Step 4: Push to Convex
+    // =========================================================================
     log("📤 Pushing to Convex...");
 
     const normalizedTxs = allTransactions.map((tx) => ({
@@ -172,8 +200,6 @@ async function main(): Promise<void> {
       description: tx.description,
       type: tx.type,
       balance: tx.balance,
-      reference: tx.reference,
-      accountId: tx.accountId,
       raw: tx,
     }));
 
@@ -183,11 +209,9 @@ async function main(): Promise<void> {
     log(`   New: ${result.insertedCount} | Skipped: ${result.skippedDuplicates}`);
   } finally {
     disableConsoleFilter();
-    if (auth) {
-      enableConsoleFilter();
-      await auth.close();
-      disableConsoleFilter();
-    }
+    if (!SYNC_VERBOSE) enableConsoleFilter();
+    await client.close();
+    disableConsoleFilter();
   }
 }
 

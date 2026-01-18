@@ -2,7 +2,6 @@
 
 // Base classes
 export { BaseBankAuth } from './base-bank-auth.js';
-export { BaseBankScraper } from './base-bank-scraper.js';
 
 // Utilities
 export { NetworkLogger, createNetworkLogger } from './utils/network-logger.js';

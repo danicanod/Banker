@@ -1,35 +1,41 @@
 /**
- * Banesco Bank Scraper
- * 
- * Complete scraper for Banco Universal Banesco using a HYBRID approach:
- * 
- * 1. Playwright-based authentication (BanescoScraper, BanescoAuth)
- *    - REQUIRED for login (handles JS, iframes, security questions)
- *    - Establishes session cookies via JavaScript execution
- * 
- * 2. HTTP-based data fetching (BanescoHttpClient)
- *    - Uses cookies from Playwright session
- *    - ~10x faster for accounts/transactions after login
- * 
- * NOTE: Pure HTTP login is NOT supported for Banesco. The site uses
- * JavaScript-based session establishment that cannot be replicated
- * with fetch alone. Always use Playwright for authentication.
- * 
- * Recommended flow:
- *   1. Login with BanescoAuth (Playwright)
- *   2. Export cookies from Playwright context
- *   3. Import cookies to BanescoHttpClient
- *   4. Use HTTP client for fast data fetching
- * 
- * See: npm run example:banesco-hybrid
+ * Banesco Bank Client
+ *
+ * Hybrid client for Banco Universal Banesco:
+ * - Playwright-based authentication (handles JS, iframes, security questions)
+ * - HTTP-based data fetching (faster, more stable after login)
+ *
+ * Recommended usage:
+ * ```typescript
+ * import { createBanescoClient } from '@danicanod/banker-venezuela/banesco';
+ *
+ * const client = createBanescoClient({
+ *   username: 'V12345678',
+ *   password: 'your_password',
+ *   securityQuestions: 'keyword1:answer1,keyword2:answer2'
+ * });
+ *
+ * await client.login();
+ * const accounts = await client.getAccounts();
+ * const movements = await client.getAccountMovements(accounts[0].accountNumber);
+ * await client.close();
+ * ```
  */
 
-// Main scraper classes (Playwright-based - REQUIRED for authentication)
-export { BanescoScraper, createBanescoScraper, quickScrape } from './scrapers/banesco-scraper.js';
-export { BanescoAuth } from './auth/banesco-auth.js';
-export { BanescoTransactionsScraper } from './scrapers/transactions.js';
+// Main client (recommended)
+export {
+  BanescoClient,
+  createBanescoClient,
+  type BanescoClientCredentials,
+  type BanescoClientConfig,
+  type BanescoLoginResult,
+} from './client.js';
 
-// HTTP client (for fast data fetching AFTER Playwright authentication)
+// Advanced: Auth (Playwright-based, for custom flows)
+export { BanescoAuth, type BanescoErrorDetails } from './auth/banesco-auth.js';
+export { SecurityQuestionsHandler } from './auth/security-questions.js';
+
+// Advanced: HTTP Client (for custom flows after auth)
 export {
   BanescoHttpClient,
   createBanescoHttpClient,
@@ -37,38 +43,28 @@ export {
   type BanescoHttpConfig,
   type BanescoHttpLoginResult,
   type BanescoHttpTransaction,
-  type BanescoHttpScrapingResult
+  type BanescoHttpScrapingResult,
+  type BanescoAccountsResult,
+  type BanescoMovementsResult,
 } from './http/index.js';
 
-// Types and interfaces
+// Types and constants
 export type {
   BanescoCredentials,
-  BanescoLoginResult,
   BanescoAuthConfig,
-  BanescoScrapingConfig,
   BanescoAccount,
   BanescoTransaction,
   Account,
   Transaction,
   LoginResult,
-  ScrapingResult,
-  BrowserConfig
+  BrowserConfig,
 } from './types/index.js';
 
 export {
   BANESCO_URLS,
-  BANESCO_CONFIG
+  BANESCO_CONFIG,
 } from './types/index.js';
 
-// Export scraping result interfaces
-export type {
-  BanescoScrapingSession
-} from './scrapers/banesco-scraper.js';
-
-export type {
-  BanescoScrapingResult
-} from './types/index.js';
-
-// Default export for convenience
-import { BanescoScraper } from './scrapers/banesco-scraper.js';
-export default BanescoScraper;
+// Default export
+import { BanescoClient } from './client.js';
+export default BanescoClient;

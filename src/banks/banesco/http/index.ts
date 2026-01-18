@@ -24,7 +24,7 @@ export {
   type BanescoHttpLoginResult,
   type BanescoHttpTransaction,
   type BanescoHttpScrapingResult,
-  type BanescoHttpAccount,
+  type BanescoAccount,
   type BanescoAccountsResult,
   type BanescoMovementsResult
 } from './banesco-http-client.js';

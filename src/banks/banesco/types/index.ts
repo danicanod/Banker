@@ -29,7 +29,10 @@ export interface BanescoCredentials extends BaseBankCredentials {
 
 // Banesco authentication configuration - extends base
 export interface BanescoAuthConfig extends BaseBankAuthConfig {
-  // No additional properties for Banesco beyond the base
+  /** Number of retries for transient Banesco outages (default: 0 = no retry) */
+  loginRetries?: number;
+  /** Delay in ms between retries (default: 5000) */
+  loginRetryDelayMs?: number;
 }
 
 // Banesco scraping configuration - extends base

@@ -139,6 +139,47 @@ async function findNotionPageByReferencia(
 }
 
 /**
+ * Find existing Notion page by date + amount + type (fallback when no reference)
+ */
+async function findNotionPageByDateAmountType(
+  notion: Client,
+  dbId: string,
+  date: string,
+  amount: number,
+  type: "debit" | "credit"
+): Promise<NotionPage | null> {
+  try {
+    // Build filter for date AND (Débito OR Crédito matching amount)
+    const amountProp = type === "debit" ? NOTION_MOV_PROPS.DEBITO : NOTION_MOV_PROPS.CREDITO;
+    
+    const response = await notion.databases.query({
+      database_id: dbId,
+      filter: {
+        and: [
+          {
+            property: NOTION_MOV_PROPS.FECHA,
+            date: { equals: date },
+          },
+          {
+            property: amountProp,
+            number: { equals: amount },
+          },
+        ],
+      },
+    });
+
+    if (response.results.length > 0 && "properties" in response.results[0]) {
+      // Return first match (there might be duplicates)
+      return response.results[0] as NotionPage;
+    }
+    return null;
+  } catch (err) {
+    console.error(`[Movimientos] Error searching by date/amount:`, err);
+    return null;
+  }
+}
+
+/**
  * Convert Notion ISO date to ms timestamp
  */
 function notionDateToMs(isoDate: string): number {
@@ -450,6 +491,21 @@ export const syncMovimientosPush = internalAction({
             if (existingPage) {
               existingPageId = existingPage.id;
               console.log(`[Movimientos Push] Found existing page by Referencia: ${txn.reference}`);
+            }
+          }
+
+          // Fallback: If still no match, try by date + amount + type
+          if (!existingPageId) {
+            const existingPage = await findNotionPageByDateAmountType(
+              notion,
+              dbId,
+              txn.date,
+              txn.amount,
+              txn.type
+            );
+            if (existingPage) {
+              existingPageId = existingPage.id;
+              console.log(`[Movimientos Push] Found existing page by date/amount: ${txn.date} ${txn.amount}`);
             }
           }
 

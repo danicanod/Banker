@@ -317,6 +317,7 @@ export abstract class BaseBankAuth<
 
   /**
    * Setup request interception for performance optimizations
+   * Also adds missing headers that real browsers send
    */
   protected async setupRequestInterception(page: Page): Promise<void> {
     this.log('⚡ Setting up performance optimizations...');
@@ -327,6 +328,38 @@ export abstract class BaseBankAuth<
       const request = route.request();
       const url = request.url();
       const resourceType = request.resourceType();
+      const method = request.method();
+      
+      // For POST requests to Banesco, add Origin header if missing
+      // Real browsers always send Origin on form submissions
+      // NOTE: We only ADD headers, don't replace the entire headers object to preserve cookies
+      if (method === 'POST' && url.includes('banesconline.com')) {
+        const existingHeaders = request.headers();
+        const additionalHeaders: Record<string, string> = {};
+        
+        // Log POST interception
+        this.log(`🔧 INTERCEPTED POST: ${url.substring(0, 60)}...`);
+        this.log(`   Existing Origin: ${existingHeaders['origin'] || 'NONE'}`);
+        
+        if (!existingHeaders['origin']) {
+          additionalHeaders['origin'] = 'https://www.banesconline.com';
+          this.log(`   Adding Origin: https://www.banesconline.com`);
+        }
+        // Also ensure Sec-Fetch headers are present (modern Chrome sends these)
+        if (!existingHeaders['sec-fetch-site']) {
+          additionalHeaders['sec-fetch-site'] = 'same-origin';
+          additionalHeaders['sec-fetch-mode'] = 'navigate';
+          additionalHeaders['sec-fetch-dest'] = 'document';
+          this.log(`   Adding Sec-Fetch headers`);
+        }
+        
+        // Only modify if we have additional headers to add
+        if (Object.keys(additionalHeaders).length > 0) {
+          this.log(`   Continuing with modified headers`);
+          await route.continue({ headers: { ...existingHeaders, ...additionalHeaders } });
+          return;
+        }
+      }
       
       // Check if URL contains blocked domains
       const shouldBlockDomain = blockedDomains.some(domain => url.includes(domain));
@@ -386,6 +419,7 @@ export abstract class BaseBankAuth<
 
   /**
    * Initialize Playwright browser and page with performance optimizations
+   * and stealth measures to avoid bot detection
    */
   protected async initializeBrowser(): Promise<void> {
     this.log('🌐 Initializing optimized browser...');
@@ -407,7 +441,9 @@ export abstract class BaseBankAuth<
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
       '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-      '--disable-ipc-flooding-protection'
+      '--disable-ipc-flooding-protection',
+      // STEALTH: Always disable automation detection (not just headless)
+      '--disable-blink-features=AutomationControlled',
     ];
     
     // Add additional performance args if in headless mode
@@ -415,8 +451,7 @@ export abstract class BaseBankAuth<
       launchArgs.push(
         '--disable-web-security',
         '--disable-features=VizDisplayCompositor',
-        '--run-all-compositor-stages-before-draw',
-        '--disable-blink-features=AutomationControlled'
+        '--run-all-compositor-stages-before-draw'
       );
     }
 
@@ -425,18 +460,27 @@ export abstract class BaseBankAuth<
       args: launchArgs
     });
 
+    // Use a realistic Windows Chrome user agent (most common)
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
     this.context = await this.browser.newContext({
       viewport: { width: 1366, height: 768 },
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      userAgent,
+      locale: 'es-VE',
+      timezoneId: 'America/Caracas',
       extraHTTPHeaders: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'es-VE,es-419;q=0.9,es;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"'
       },
       // Performance: disable images, CSS, fonts if configured
       // Note: This approach is less granular but very effective
@@ -446,19 +490,22 @@ export abstract class BaseBankAuth<
       } : {})
     });
 
+    // STEALTH: Apply anti-bot detection measures to CONTEXT (affects all pages and iframes)
+    await this.applyStealthMeasures(this.context);
+    
     this.page = await this.context.newPage();
     
     // Setup request interception for fine-grained control
     await this.setupRequestInterception(this.page);
     
-    // Disable unnecessary features for performance
-    await this.page.setExtraHTTPHeaders({
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-    });
-    
     // Set aggressive timeouts for faster failure
     this.page.setDefaultTimeout(this.config.timeout || 30000);
     this.page.setDefaultNavigationTimeout(this.config.timeout || 30000);
+    
+    // Add network monitoring for debugging bot detection
+    if (process.env.SYNC_VERBOSE === 'true') {
+      this.setupNetworkMonitoring(this.page);
+    }
     
     if (this.config.debug) {
       this.log('🐛 Optimized browser initialized in debug mode');
@@ -467,6 +514,135 @@ export abstract class BaseBankAuth<
       this.log(`⚡ Performance optimizations: ${JSON.stringify(this.performanceConfig)}`);
       this.log(`📄 Log file: ${this.logFile}`);
     }
+  }
+
+  /**
+   * Setup network monitoring for debugging
+   */
+  private setupNetworkMonitoring(page: Page): void {
+    page.on('response', async (response) => {
+      const url = response.url();
+      const status = response.status();
+      
+      // Monitor CAU/inicio requests (authenticated dashboard)
+      if (url.includes('CAU') || url.includes('inicio')) {
+        this.log(`📡 ${status} ${url.substring(0, 80)}`);
+        
+        // Check for error responses
+        const contentType = response.headers()['content-type'] || '';
+        if (contentType.includes('html') && status === 200) {
+          try {
+            const body = await response.text();
+            if (body.includes('GUEG') || body.includes('no podemos procesar')) {
+              this.log(`🔴 BOT DETECTION in response: ${url}`);
+              // Log request headers that might be the issue
+              const request = response.request();
+              const headers = request.headers();
+              this.log(`   Request headers:`);
+              this.log(`   - Referer: ${headers['referer'] || 'MISSING'}`);
+              this.log(`   - Origin: ${headers['origin'] || 'MISSING'}`);
+              this.log(`   - User-Agent: ${headers['user-agent']?.substring(0, 50) || 'MISSING'}`);
+              this.log(`   - Cookie present: ${headers['cookie'] ? 'yes' : 'NO'}`);
+            }
+          } catch (e) {
+            // Ignore body read errors
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Apply stealth measures to avoid bot detection
+   * Applied to context so it affects ALL pages and iframes
+   * This overrides various browser properties that are commonly checked
+   */
+  protected async applyStealthMeasures(context: BrowserContext): Promise<void> {
+    this.log('🥷 Applying stealth measures to context (affects all frames)...');
+    
+    await context.addInitScript(() => {
+      // Override navigator.webdriver - most common bot detection
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+        configurable: true
+      });
+      
+      // Override navigator.plugins to look like a real browser
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => {
+          const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+          ];
+          // Make it array-like with length
+          const pluginArray = Object.create(PluginArray.prototype);
+          plugins.forEach((p, i) => {
+            pluginArray[i] = p;
+          });
+          Object.defineProperty(pluginArray, 'length', { value: plugins.length });
+          return pluginArray;
+        },
+        configurable: true
+      });
+      
+      // Override navigator.languages
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['es-VE', 'es-419', 'es', 'en'],
+        configurable: true
+      });
+      
+      // Override navigator.platform to match Windows user agent
+      Object.defineProperty(navigator, 'platform', {
+        get: () => 'Win32',
+        configurable: true
+      });
+      
+      // Override navigator.hardwareConcurrency (realistic value)
+      Object.defineProperty(navigator, 'hardwareConcurrency', {
+        get: () => 8,
+        configurable: true
+      });
+      
+      // Override navigator.deviceMemory (realistic value)
+      Object.defineProperty(navigator, 'deviceMemory', {
+        get: () => 8,
+        configurable: true
+      });
+      
+      // Override chrome runtime to look like real Chrome
+      (window as any).chrome = {
+        runtime: {
+          connect: () => {},
+          sendMessage: () => {},
+          onMessage: { addListener: () => {} }
+        },
+        loadTimes: () => ({}),
+        csi: () => ({})
+      };
+      
+      // Override permissions API
+      const originalQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
+      if (originalQuery) {
+        (navigator as any).permissions.query = (parameters: any) => {
+          if (parameters.name === 'notifications') {
+            return Promise.resolve({ state: 'denied', onchange: null } as PermissionStatus);
+          }
+          return originalQuery(parameters);
+        };
+      }
+      
+      // Make toString() on functions look native
+      const originalFunction = Function.prototype.toString;
+      Function.prototype.toString = function() {
+        if (this === Function.prototype.toString) {
+          return 'function toString() { [native code] }';
+        }
+        return originalFunction.call(this);
+      };
+    });
+    
+    this.log('✅ Stealth measures applied');
   }
 
   /**
