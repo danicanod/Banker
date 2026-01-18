@@ -105,11 +105,12 @@ export const BANK_PERFORMANCE_CONFIGS = {
 
   /**
    * Banesco Bank optimized configuration  
-   * Banesco has complex iframes and might need more JS
+   * Banesco has complex iframes and bot detection - use minimal blocking
+   * NOTE: Banesco appears to have bot detection that triggers when resources are blocked
    */
   BANESCO: {
-    auth: PERFORMANCE_PRESETS.AGGRESSIVE,   // Security questions need some JS
-    scraping: PERFORMANCE_PRESETS.BALANCED  // Complex table structures
+    auth: PERFORMANCE_PRESETS.CONSERVATIVE, // Minimal blocking to avoid bot detection
+    scraping: PERFORMANCE_PRESETS.CONSERVATIVE  // Keep CSS/images to avoid detection
   }
 };
 

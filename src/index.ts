@@ -1,20 +1,32 @@
 /**
- * Banker Venezuela - Enterprise Banking Scraper Library
+ * Banker Venezuela - Banking Client Library
  *
- * A TypeScript library for scraping Venezuelan bank accounts.
+ * A TypeScript library for connecting to Venezuelan bank accounts.
  * Supports Banesco (hybrid: Playwright login + HTTP fetch) and BNC (pure HTTP).
  *
  * @example
  * ```typescript
- * import { BanescoScraper, BncScraper } from '@danicanod/banker-venezuela';
+ * import { createBanescoClient, createBncClient } from '@danicanod/banker-venezuela';
  *
- * // Banesco usage (hybrid mode - Playwright required for login)
- * const banesco = new BanescoScraper(credentials, { headless: true });
- * const session = await banesco.scrapeAll();
+ * // Banesco usage (hybrid mode - Playwright for login, HTTP for data)
+ * const banesco = createBanescoClient({
+ *   username: 'V12345678',
+ *   password: 'your_password',
+ *   securityQuestions: 'keyword1:answer1,keyword2:answer2'
+ * });
+ * await banesco.login();
+ * const accounts = await banesco.getAccounts();
+ * await banesco.close();
  *
  * // BNC usage (pure HTTP - no browser needed)
- * const bnc = new BncScraper(credentials);
- * const session = await bnc.scrapeAll();
+ * const bnc = createBncClient({
+ *   id: 'V12345678',
+ *   cardNumber: '1234567890123456',
+ *   password: 'your_password'
+ * });
+ * await bnc.login();
+ * const transactions = await bnc.getTransactions();
+ * await bnc.close();
  * ```
  */
 
@@ -22,37 +34,20 @@
 // Banesco Bank Exports (Hybrid: Playwright login + HTTP data fetch)
 // ============================================================================
 
+// Main client (recommended)
 export {
-  BanescoScraper,
-  createBanescoScraper,
-  quickScrape as quickScrapeBanesco,
-} from './banks/banesco/scrapers/banesco-scraper.js';
+  BanescoClient,
+  createBanescoClient,
+  type BanescoClientCredentials,
+  type BanescoClientConfig,
+  type BanescoLoginResult,
+} from './banks/banesco/client.js';
 
+// Advanced: Auth (Playwright-based, for custom flows)
 export { BanescoAuth } from './banks/banesco/auth/banesco-auth.js';
-export { BanescoTransactionsScraper } from './banks/banesco/scrapers/transactions.js';
-export { AccountsScraper as BanescoAccountsScraper } from './banks/banesco/scrapers/accounts.js';
-export { OptimizedLogin as BanescoOptimizedLogin } from './banks/banesco/auth/optimized-login.js';
 export { SecurityQuestionsHandler } from './banks/banesco/auth/security-questions.js';
 
-export type {
-  BanescoCredentials,
-  BanescoLoginResult,
-  BanescoAuthConfig,
-  BanescoScrapingConfig,
-  BanescoScrapingResult,
-  BanescoAccount,
-  BanescoTransaction,
-  BrowserConfig as BanescoBrowserConfig,
-} from './banks/banesco/types/index.js';
-
-export {
-  BANESCO_URLS,
-  BANESCO_CONFIG,
-} from './banks/banesco/types/index.js';
-
-export type { BanescoScrapingSession } from './banks/banesco/scrapers/banesco-scraper.js';
-
-// Banesco HTTP Client (for hybrid mode: Playwright login + HTTP data fetch)
+// Advanced: HTTP Client (for custom flows after auth)
 export {
   BanescoHttpClient,
   createBanescoHttpClient,
@@ -62,22 +57,37 @@ export type {
   BanescoHttpCredentials,
   BanescoHttpConfig,
   BanescoHttpTransaction,
-  BanescoHttpAccount,
   BanescoAccountsResult,
   BanescoMovementsResult,
 } from './banks/banesco/http/index.js';
+
+// Types
+export type {
+  BanescoCredentials,
+  BanescoAuthConfig,
+  BanescoAccount,
+  BanescoTransaction,
+} from './banks/banesco/types/index.js';
+
+export {
+  BANESCO_URLS,
+  BANESCO_CONFIG,
+} from './banks/banesco/types/index.js';
 
 // ============================================================================
 // BNC Bank Exports (Pure HTTP - no browser needed)
 // ============================================================================
 
+// Main client (recommended)
 export {
-  BncScraper,
-  createBncScraper,
-  quickScrape as quickScrapeBnc,
-} from './banks/bnc/scrapers/bnc-scraper.js';
+  BncClient,
+  createBncClient,
+  type BncClientCredentials,
+  type BncClientConfig,
+  type BncLoginResult as BncClientLoginResult,
+} from './banks/bnc/client.js';
 
-// BNC HTTP Client (direct access for advanced usage)
+// Advanced: HTTP Client (direct access)
 export {
   BncHttpClient,
   createBncHttpClient,
@@ -90,15 +100,14 @@ export type {
   BncHttpLoginResult,
 } from './banks/bnc/http/index.js';
 
+// Types
 export type {
   BncCredentials,
   BncLoginResult,
   BncAuthConfig,
-  BncScrapingConfig,
   BncScrapingResult,
   BncAccount,
   BncTransaction,
-  BrowserConfig as BncBrowserConfig,
 } from './banks/bnc/types/index.js';
 
 export {
@@ -108,21 +117,16 @@ export {
   BNC_CONFIG,
 } from './banks/bnc/types/index.js';
 
-export type { BncScrapingSession } from './banks/bnc/scrapers/bnc-scraper.js';
-
 // ============================================================================
-// Shared Infrastructure Exports
+// Shared Infrastructure Exports (Advanced)
 // ============================================================================
 
 export { BaseBankAuth } from './shared/base-bank-auth.js';
-export { BaseBankScraper } from './shared/base-bank-scraper.js';
 
 export type {
   BaseBankAuthConfig,
   BaseBankLoginResult,
   BaseBankCredentials,
-  BaseBankScrapingConfig,
-  BaseBankScrapingResult,
 } from './shared/types/index.js';
 
 export {

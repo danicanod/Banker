@@ -5,7 +5,7 @@
  * using the abstract BaseBankAuth class with Banesco-specific implementation
  * of security questions, iframe handling, and modal management.
  */
-import { SecurityQuestionsHandler } from './security-questions.js';
+import { SecurityQuestionsHandler, SecurityQuestionsResult } from './security-questions.js';
 import { BaseBankAuth } from '../../../shared/base-bank-auth.js';
 import { Frame } from 'playwright';
 import {
@@ -15,12 +15,25 @@ import {
   BANESCO_URLS
 } from '../types/index.js';
 
+/**
+ * Banesco error page details extracted from error.aspx
+ */
+export interface BanescoErrorDetails {
+  message: string;
+  errorCode: string | null;
+  server: string | null;
+  isTransientOutage: boolean;
+}
+
 export class BanescoAuth extends BaseBankAuth<
   BanescoCredentials, 
   BanescoAuthConfig, 
   BanescoLoginResult
 > {
   private securityHandler: SecurityQuestionsHandler;
+  
+  /** Stores the last detected Banesco error details (if any) */
+  private lastBanescoError: BanescoErrorDetails | null = null;
 
   constructor(credentials: BanescoCredentials, config: BanescoAuthConfig = {}) {
     super('Banesco', credentials, config);
@@ -39,6 +52,8 @@ export class BanescoAuth extends BaseBankAuth<
       timeout: 30000,
       debug: false,
       saveSession: true,
+      loginRetries: parseInt(process.env.BANESCO_LOGIN_RETRIES || '0', 10),
+      loginRetryDelayMs: parseInt(process.env.BANESCO_LOGIN_RETRY_DELAY_MS || '5000', 10),
       ...config
     } as Required<BanescoAuthConfig>;
   }
@@ -48,6 +63,59 @@ export class BanescoAuth extends BaseBankAuth<
    */
   protected getUserIdentifier(): string {
     return this.credentials.username.substring(0, 3);
+  }
+
+  /**
+   * Override login to add retry logic for transient Banesco outages
+   */
+  async login(): Promise<BanescoLoginResult> {
+    const maxAttempts = (this.config.loginRetries || 0) + 1;
+    const retryDelay = this.config.loginRetryDelayMs || 5000;
+    
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          this.log(`🔄 Retry attempt ${attempt}/${maxAttempts} after transient error...`);
+        }
+        
+        // Call the parent login method
+        const result = await super.login();
+        return result;
+        
+      } catch (error: any) {
+        lastError = error;
+        
+        // Check if this is a transient outage that we should retry
+        const banescoError = this.getLastBanescoError();
+        const isTransient = banescoError?.isTransientOutage || 
+          (error.message && (
+            error.message.includes('temporarily unavailable') ||
+            error.message.includes('intente más tarde') ||
+            error.message.includes('intente mas tarde')
+          ));
+        
+        if (isTransient && attempt < maxAttempts) {
+          this.log(`⏳ Transient Banesco outage detected. Waiting ${retryDelay}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Close and reinitialize browser for fresh attempt
+          await this.close();
+          continue;
+        }
+        
+        // Not a transient error or no more retries - fail
+        throw error;
+      }
+    }
+    
+    // Should not reach here, but just in case
+    if (lastError) {
+      throw lastError;
+    }
+    
+    return this.createFailureResult('Login failed after all retry attempts');
   }
 
   /**
@@ -76,14 +144,44 @@ export class BanescoAuth extends BaseBankAuth<
       const loginSuccess = await this.performLogin(frame);
       
       if (loginSuccess) {
-        return await this.verifyLoginSuccess();
+        const verified = await this.verifyLoginSuccess();
+        
+        if (!verified) {
+          // Check if we have a specific Banesco error to report
+          const banescoError = this.getLastBanescoError();
+          if (banescoError) {
+            const errorInfo = banescoError.errorCode 
+              ? `${banescoError.errorCode}${banescoError.server ? ' / ' + banescoError.server : ''}`
+              : '';
+            const prefix = banescoError.isTransientOutage 
+              ? 'Banesco temporarily unavailable' 
+              : 'Banesco error';
+            throw new Error(`${prefix}${errorInfo ? ` (${errorInfo})` : ''}: ${banescoError.message}`);
+          }
+          throw new Error('Login verification failed - could not confirm authentication');
+        }
+        
+        return true;
+      }
+      
+      // Login process itself failed - check for Banesco error page
+      const banescoError = await this.checkForBanescoErrorPage();
+      if (banescoError) {
+        this.lastBanescoError = banescoError;
+        const errorInfo = banescoError.errorCode 
+          ? `${banescoError.errorCode}${banescoError.server ? ' / ' + banescoError.server : ''}`
+          : '';
+        const prefix = banescoError.isTransientOutage 
+          ? 'Banesco temporarily unavailable' 
+          : 'Banesco error';
+        throw new Error(`${prefix}${errorInfo ? ` (${errorInfo})` : ''}: ${banescoError.message}`);
       }
       
       return false;
 
     } catch (error) {
       this.log(`❌ Bank-specific login failed: ${error}`);
-      return false;
+      throw error; // Re-throw to propagate the detailed error message
     }
   }
 
@@ -111,43 +209,35 @@ export class BanescoAuth extends BaseBankAuth<
         throw new Error('Could not access iframe content');
       }
 
-      // Wait for frame to be ready - use networkidle for dynamic content
+      // Wait for frame to be ready
       await frame.waitForLoadState('domcontentloaded');
       
-      // Give extra time for dynamic content to render
-      this.log('⏳ Waiting for iframe content to fully render...');
-      await this.page.waitForTimeout(2000);
+      // Wait for any known username input to be visible (fast multi-selector check)
+      const usernameSelectors = [
+        '#ctl00_cp_ddpControles_txtloginname',
+        'input[name="txtUsuario"]',
+        'input[id*="txtUsuario"]',
+        'input[id*="txtloginname"]',
+        'input[type="text"]',
+      ];
       
-      // Try to wait for the username field specifically inside the frame
-      try {
-        await frame.waitForSelector('#ctl00_cp_ddpControles_txtloginname', { 
-          timeout: 15000,
-          state: 'visible'
-        });
-        this.log('✅ Username field detected in iframe');
-      } catch (fieldError) {
-        // Log what we can see in the frame for debugging
+      let usernameFieldFound = false;
+      for (const sel of usernameSelectors) {
+        try {
+          await frame.waitForSelector(sel, { timeout: 2500, state: 'visible' });
+          this.log(`✅ Username field detected: ${sel}`);
+          usernameFieldFound = true;
+          break;
+        } catch {
+          // Try next selector
+        }
+      }
+      
+      if (!usernameFieldFound) {
+        // Log for debugging but don't fail - enterUsernameAndSubmit has its own lookup
         const frameContent = await frame.content();
         const hasForm = frameContent.includes('txtloginname') || frameContent.includes('txtUsuario');
-        this.log(`⚠️ Username field not immediately visible. Form elements in HTML: ${hasForm}`);
-        
-        // Try alternate selectors
-        const alternateSelectors = [
-          'input[type="text"]',
-          'input[name*="login"]',
-          'input[name*="usuario"]',
-          '#txtUsuario'
-        ];
-        
-        for (const sel of alternateSelectors) {
-          try {
-            const el = await frame.$(sel);
-            if (el) {
-              this.log(`✅ Found alternate field with selector: ${sel}`);
-              break;
-            }
-          } catch { /* continue */ }
-        }
+        this.log(`⚠️ Username field not found via fast check. Form elements in HTML: ${hasForm}`);
       }
       
       this.log('✅ Login iframe ready');
@@ -160,11 +250,93 @@ export class BanescoAuth extends BaseBankAuth<
   }
 
   /**
+   * Detected step in the login flow
+   */
+  private static readonly LOGIN_STEP = {
+    UNKNOWN: 'unknown',
+    ACTIVE_SESSION_WARNING: 'active_session_warning',
+    SECURITY_QUESTIONS: 'security_questions',
+    PASSWORD: 'password',
+  } as const;
+
+  private async detectCurrentStep(frame: Frame): Promise<string> {
+    // FIRST: Check URL for AU_ValDNA.aspx - this is definitively the security questions page
+    // This check takes priority because AU_ValDNA can sometimes have password-like fields
+    // that cause false positives when checking password selectors first
+    try {
+      const frameUrl = frame.url();
+      if (frameUrl.includes('AU_ValDNA.aspx')) {
+        this.log('🔍 Detected AU_ValDNA.aspx URL - this is security questions page');
+        return BanescoAuth.LOGIN_STEP.SECURITY_QUESTIONS;
+      }
+    } catch { /* continue */ }
+
+    // Check for security questions labels BEFORE password field
+    // This ensures we don't skip security questions when both are somehow visible
+    const securityLabelSelectors = [
+      '#lblPrimeraP',
+      '#lblSegundaP',
+      '#lblTerceraP',
+      '#lblCuartaP',
+      '[id$="lblPrimeraP"]',
+      '[id$="lblSegundaP"]',
+      'label[id*="Pregunta"]',
+      'span[id*="Pregunta"]'
+    ];
+    for (const sel of securityLabelSelectors) {
+      try {
+        const el = await frame.$(sel);
+        if (el && await el.isVisible()) {
+          return BanescoAuth.LOGIN_STEP.SECURITY_QUESTIONS;
+        }
+      } catch { /* continue */ }
+    }
+
+    // Check for password field
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[id*="txtclave"]',
+      'input[id*="txtClave"]',
+      '#ctl00_cp_ddpControles_txtclave'
+    ];
+    for (const sel of passwordSelectors) {
+      try {
+        const el = await frame.$(sel);
+        if (el && await el.isVisible()) {
+          return BanescoAuth.LOGIN_STEP.PASSWORD;
+        }
+      } catch { /* continue */ }
+    }
+
+    // Check page content for active session warning
+    try {
+      const content = await frame.content();
+      const text = content.toLowerCase();
+      if (
+        text.includes('conexión activa') ||
+        text.includes('sesión abierta') ||
+        (text.includes('hemos detectado') && text.includes('conexión'))
+      ) {
+        return BanescoAuth.LOGIN_STEP.ACTIVE_SESSION_WARNING;
+      }
+      // Also check for security question text in content
+      if (text.includes('pregunta') && text.includes('seguridad')) {
+        return BanescoAuth.LOGIN_STEP.SECURITY_QUESTIONS;
+      }
+    } catch { /* continue */ }
+
+    return BanescoAuth.LOGIN_STEP.UNKNOWN;
+  }
+
+  /**
    * Perform the login process within the iframe
    * Banesco has a multi-step flow:
    * Step 1: Username → Click Aceptar
    * Step 2: Security questions (if shown) → Click Aceptar  
    * Step 3: Password → Click Aceptar
+   * 
+   * Additionally, an "active session" warning can appear at any step.
+   * This method loops to handle that warning until we reach password or max retries.
    */
   private async performLogin(frame: Frame): Promise<boolean> {
     this.log('🔐 Starting login process...');
@@ -179,39 +351,135 @@ export class BanescoAuth extends BaseBankAuth<
       // Step 2: Wait for next step and get fresh frame reference
       this.log('⏳ Waiting for next step to load...');
       await this.page?.waitForTimeout(3000);
-      
-      // Re-get the iframe as it may have reloaded
-      const newFrame = await this.getRefreshedFrame();
-      if (!newFrame) {
-        throw new Error('Lost iframe after username submission');
-      }
 
-      // Step 3: Check for security questions
-      this.log('❓ Step 2: Checking for security questions...');
-      const hasSecurityQuestions = await this.checkForSecurityQuestions(newFrame);
+      // Loop to handle intermediate screens (active session warning, security questions)
+      const MAX_RETRIES = 5;
+      let currentFrame = await this.getRefreshedFrame();
       
-      if (hasSecurityQuestions) {
-        this.log('🔐 Security questions answered, submitting...');
-        await this.clickSubmitButton(newFrame);
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (!currentFrame) {
+          throw new Error('Lost iframe during login flow');
+        }
+
+        const step = await this.detectCurrentStep(currentFrame);
+        this.log(`🔍 Detected step: ${step} (attempt ${attempt + 1}/${MAX_RETRIES})`);
+
+        if (step === BanescoAuth.LOGIN_STEP.PASSWORD) {
+          // Found password field - proceed to enter password
+          this.log('🔑 Step 3: Entering password...');
+          await this.enterPasswordDirect(currentFrame);
+          this.log('✅ Login form submitted successfully');
+          return true;
+        }
+
+        if (step === BanescoAuth.LOGIN_STEP.SECURITY_QUESTIONS) {
+          this.log('❓ Step 2: Handling security questions...');
+          const result: SecurityQuestionsResult = await this.securityHandler.handleSecurityQuestions(currentFrame);
+          
+          this.log(`📊 Security questions: ${result.answersProvided}/${result.questionsFound} answered`);
+          
+          // Banesco typically requires 2 answers. Don't require \"all\" because the page can contain extra slots.
+          if (result.meetsMinimum) {
+            this.log(`✅ Security questions answered (>= ${result.minimumRequiredAnswers}), submitting...`);
+            await this.clickSubmitButton(currentFrame);
+            await this.page?.waitForTimeout(2000);
+            currentFrame = await this.getRefreshedFrame();
+            continue;
+          } else if (result.questionsFound === 0) {
+            // No questions found - might be a detection issue, try to continue
+            this.log('⚠️ No security questions found on page, attempting to continue...');
+            await this.clickSubmitButton(currentFrame);
+            await this.page?.waitForTimeout(2000);
+            currentFrame = await this.getRefreshedFrame();
+            continue;
+          } else {
+            // Some questions found but not all answered - fail fast with clear error
+            const failedDetails = result.details
+              .filter(d => d.status !== 'answered')
+              .map(d => `${d.labelId}: ${d.status}`)
+              .join(', ');
+            throw new Error(
+              `Security questions incomplete: answered ${result.answersProvided}/${result.questionsFound} ` +
+              `(minRequired=${result.minimumRequiredAnswers}). ` +
+              `Failed: ${failedDetails}. ` +
+              `Check BANESCO_SECURITY_QUESTIONS env var has keywords matching all questions.`
+            );
+          }
+        }
+
+        if (step === BanescoAuth.LOGIN_STEP.ACTIVE_SESSION_WARNING) {
+          this.log('⚠️ Active session warning detected, clicking Aceptar to continue...');
+          await this.clickSubmitButton(currentFrame);
+          await this.page?.waitForTimeout(3000);
+          currentFrame = await this.getRefreshedFrame();
+          continue;
+        }
+
+        // UNKNOWN step - wait a bit and try again
+        this.log('⏳ Unknown step, waiting for page to settle...');
         await this.page?.waitForTimeout(2000);
+        currentFrame = await this.getRefreshedFrame();
       }
 
-      // Step 4: Get fresh frame and enter password
-      const passwordFrame = await this.getRefreshedFrame();
-      if (!passwordFrame) {
-        throw new Error('Lost iframe before password step');
-      }
-      
-      this.log('🔑 Step 3: Entering password...');
-      await this.enterPasswordAndSubmit(passwordFrame);
-
-      this.log('✅ Login form submitted successfully');
-      return true;
+      throw new Error('Max retries exceeded - could not reach password step');
 
     } catch (error) {
       this.log(`❌ Login process failed: ${error}`);
       return false;
     }
+  }
+
+  /**
+   * Enter password directly (assumes password field is visible)
+   */
+  private async enterPasswordDirect(frame: Frame): Promise<void> {
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[id*="txtclave"]',
+      'input[id*="txtClave"]',
+      '#ctl00_cp_ddpControles_txtclave'
+    ];
+
+    let passwordField = null;
+    for (const selector of passwordSelectors) {
+      try {
+        const element = await frame.$(selector);
+        if (element && await element.isVisible()) {
+          passwordField = element;
+          this.log(`✅ Found password field: ${selector}`);
+          break;
+        }
+      } catch { continue; }
+    }
+
+    if (!passwordField) {
+      throw new Error('Password field not found');
+    }
+
+    // Human-like: click field first, small delay, then type with delays
+    await passwordField.click();
+    await this.humanDelay(200, 400);
+    
+    // Type like a human (character by character with small delays)
+    await passwordField.type(this.credentials.password, { delay: 50 });
+    this.log('✅ Password entered');
+
+    // Human-like delay before submitting
+    await this.humanDelay(500, 1000);
+    
+    // Try pressing Enter instead of clicking button (more natural behavior)
+    // This allows any JavaScript handlers on the form to process normally
+    this.log('🔘 Pressing Enter to submit...');
+    await passwordField.press('Enter');
+    this.log('✅ Submit triggered via Enter');
+  }
+  
+  /**
+   * Add a random human-like delay
+   */
+  private async humanDelay(minMs: number, maxMs: number): Promise<void> {
+    const delay = Math.floor(Math.random() * (maxMs - minMs)) + minMs;
+    await this.page?.waitForTimeout(delay);
   }
 
   /**
@@ -264,122 +532,21 @@ export class BanescoAuth extends BaseBankAuth<
       throw new Error('Username field not found');
     }
     
-    // Type username quickly
-    await usernameField.fill(this.credentials.username);
+    // Human-like: click field first, small delay, then type with delays
+    await usernameField.click();
+    await this.humanDelay(200, 400);
+    
+    // Type like a human (character by character with small delays)
+    await usernameField.type(this.credentials.username, { delay: 50 });
     this.log('✅ Username entered');
     
-    // Click submit button
+    // Human-like delay before submitting
+    await this.humanDelay(300, 600);
+    
+    // Use button click for username step (Enter might not work on all forms)
     await this.clickSubmitButton(frame);
   }
 
-  /**
-   * Enter password and click submit button (Step 3)
-   */
-  private async enterPasswordAndSubmit(frame: Frame): Promise<void> {
-    // Wait for password field to appear
-    await frame.page().waitForTimeout(1500);
-    
-    const passwordSelectors = [
-      'input[type="password"]',
-      'input[id*="txtclave"]',
-      'input[id*="txtClave"]',
-      'input[id*="password"]',
-      '#ctl00_cp_ddpControles_txtclave'
-    ];
-    
-    this.log('🔍 Looking for password field...');
-    
-    let passwordField = null;
-    for (const selector of passwordSelectors) {
-      try {
-        const element = await frame.$(selector);
-        if (element && await element.isVisible()) {
-          passwordField = element;
-          this.log(`✅ Found password field: ${selector}`);
-          break;
-        }
-      } catch { continue; }
-    }
-    
-    if (!passwordField) {
-      // Debug what we see
-      const inputs = await frame.$$('input');
-      this.log(`⚠️ No password field found. Visible inputs: ${inputs.length}`);
-      for (const inp of inputs.slice(0, 5)) {
-        const t = await inp.getAttribute('type');
-        const id = await inp.getAttribute('id');
-        this.log(`   - type=${t}, id=${id}`);
-      }
-      
-      // Get page text for debugging
-      const content = await frame.content();
-      const textContent = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').substring(0, 500);
-      this.log(`   📄 Page preview: ${textContent.substring(0, 200)}...`);
-      
-      // Check if this is a confirmation/warning page that needs a click
-      const pageText = textContent.toLowerCase();
-      if (pageText.includes('sesión') || pageText.includes('conexión activa') || pageText.includes('abierta') || pageText.includes('activa')) {
-        this.log('   ⚠️ Detected active session warning, clicking Aceptar to continue...');
-        await this.clickSubmitButton(frame);
-        await frame.page().waitForTimeout(3000);
-        
-        // Re-get the iframe as it may have reloaded
-        const newFrame = await this.getRefreshedFrame();
-        if (newFrame) {
-          // Wait for content to load
-          await newFrame.waitForLoadState('domcontentloaded').catch(() => {});
-          
-          // Try to find password field again after clicking
-          for (const selector of passwordSelectors) {
-            try {
-              const element = await newFrame.$(selector);
-              if (element && await element.isVisible()) {
-                passwordField = element;
-                this.log(`✅ Found password field after warning: ${selector}`);
-                // Update frame reference for subsequent operations
-                Object.assign(frame, newFrame);
-                break;
-              }
-            } catch { continue; }
-          }
-          
-          // If still no password, might need to restart login from security questions
-          if (!passwordField) {
-            this.log('   🔄 Checking for security questions after session warning...');
-            const hasSecurityQuestions = await this.checkForSecurityQuestions(newFrame);
-            if (hasSecurityQuestions) {
-              this.log('   ✅ Security questions found, answers provided');
-              await this.clickSubmitButton(newFrame);
-              await frame.page().waitForTimeout(2000);
-              
-              // One more try for password field
-              const finalFrame = await this.getRefreshedFrame();
-              if (finalFrame) {
-                for (const selector of passwordSelectors) {
-                  try {
-                    const element = await finalFrame.$(selector);
-                    if (element && await element.isVisible()) {
-                      passwordField = element;
-                      this.log(`✅ Found password field after security questions: ${selector}`);
-                      break;
-                    }
-                  } catch { continue; }
-                }
-              }
-            }
-          }
-        }
-      }
-      throw new Error('Password field not found');
-    }
-    
-    // Type password
-    await passwordField.fill(this.credentials.password);
-    this.log('✅ Password entered');
-    
-    // Click submit button
-    await this.clickSubmitButton(frame);
-  }
 
   /**
    * Click the submit/Aceptar button
@@ -410,26 +577,51 @@ export class BanescoAuth extends BaseBankAuth<
 
   /**
    * Check for and handle security questions
+   * Uses the exact label IDs that Banesco uses (lblPrimeraP, lblSegundaP, etc.)
    */
   private async checkForSecurityQuestions(frame: Frame): Promise<boolean> {
     try {
-      // Multiple selectors for security question fields
-      const securitySelectors = [
-        '#ctl00_cp_ddpControles_txtpreguntasecreta',
-        'input[id*="pregunta"]',
-        'input[id*="Pregunta"]',
-        'input[id*="respuesta"]',
-        'input[id*="Respuesta"]',
-        'input[name*="pregunta"]'
+      // Check for security question labels (specific Banesco IDs)
+      const labelSelectors = [
+        '#lblPrimeraP',
+        '#lblSegundaP',
+        '#lblTerceraP',
+        '#lblCuartaP',
+        'label[id*="Pregunta"]',
+        'span[id*="Pregunta"]'
       ];
       
-      let securityField = null;
-      for (const selector of securitySelectors) {
+      // Check for security question input fields
+      const inputSelectors = [
+        '#txtPrimeraR',
+        '#txtSegundaR',
+        '#txtTerceraR',
+        '#txtCuartaR',
+        '#ctl00_cp_ddpControles_txtpreguntasecreta',
+        'input[id*="respuesta"]',
+        'input[id*="Respuesta"]'
+      ];
+      
+      let foundLabel = false;
+      let foundInput = false;
+      
+      for (const selector of labelSelectors) {
         try {
           const el = await frame.$(selector);
           if (el && await el.isVisible()) {
-            securityField = el;
-            this.log(`🔒 Found security field: ${selector}`);
+            foundLabel = true;
+            this.log(`🔒 Found security question label: ${selector}`);
+            break;
+          }
+        } catch { continue; }
+      }
+      
+      for (const selector of inputSelectors) {
+        try {
+          const el = await frame.$(selector);
+          if (el && await el.isVisible()) {
+            foundInput = true;
+            this.log(`🔒 Found security input field: ${selector}`);
             break;
           }
         } catch { continue; }
@@ -440,7 +632,7 @@ export class BanescoAuth extends BaseBankAuth<
       const hasSecurityText = frameContent.toLowerCase().includes('pregunta') && 
                               frameContent.toLowerCase().includes('seguridad');
       
-      if (!securityField && !hasSecurityText) {
+      if (!foundLabel && !foundInput && !hasSecurityText) {
         this.log('ℹ️  No security questions detected');
         return false;
       }
@@ -467,52 +659,229 @@ export class BanescoAuth extends BaseBankAuth<
 
 
   /**
+   * Check the login iframe for Banesco's error page (error.aspx).
+   * Returns error details if found, null otherwise.
+   * 
+   * The error page contains:
+   * - lblMensaje: The error message (e.g., "En estos momentos no podemos procesar su operación...")
+   * - lblCodigoError: Error code (e.g., "GUEG001")
+   * - server: Server identifier (e.g., "SWEB0069")
+   */
+  private async checkForBanescoErrorPage(): Promise<BanescoErrorDetails | null> {
+    if (!this.page) return null;
+
+    try {
+      // Get the login iframe
+      const iframeElement = await this.page.$(BANESCO_URLS.IFRAME_SELECTOR);
+      if (!iframeElement) return null;
+
+      const frame = await iframeElement.contentFrame();
+      if (!frame) return null;
+
+      const frameContent = await frame.content();
+
+      // Check for error page markers
+      const hasErrorMessage = frameContent.includes('lblMensaje');
+      const hasErrorCode = frameContent.includes('lblCodigoError');
+      
+      if (!hasErrorMessage && !hasErrorCode) {
+        return null;
+      }
+
+      // Extract error details
+      let message = '';
+      let errorCode: string | null = null;
+      let server: string | null = null;
+
+      // Extract message from lblMensaje
+      try {
+        const msgElement = await frame.$('#lblMensaje');
+        if (msgElement) {
+          message = (await msgElement.textContent())?.trim() || '';
+        }
+      } catch { /* ignore */ }
+
+      // Extract error code from lblCodigoError
+      try {
+        const codeElement = await frame.$('#lblCodigoError');
+        if (codeElement) {
+          errorCode = (await codeElement.textContent())?.trim() || null;
+        }
+      } catch { /* ignore */ }
+
+      // Extract server from #server element
+      try {
+        const serverElement = await frame.$('#server');
+        if (serverElement) {
+          server = (await serverElement.textContent())?.trim() || null;
+        }
+      } catch { /* ignore */ }
+
+      // If we found at least a message, this is an error page
+      if (message || errorCode) {
+        // Determine if this is a transient outage (should retry later)
+        const isTransientOutage = 
+          message.toLowerCase().includes('intente más tarde') ||
+          message.toLowerCase().includes('intente mas tarde') ||
+          message.toLowerCase().includes('no podemos procesar') ||
+          (errorCode?.startsWith('GU') || false); // GUEG001-style codes are often transient
+
+        return {
+          message: message || 'Unknown Banesco error',
+          errorCode,
+          server,
+          isTransientOutage
+        };
+      }
+
+      return null;
+    } catch (error) {
+      this.log(`⚠️ Error checking for Banesco error page: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Check if the page shows authenticated chrome (logout link, etc.)
+   * This helps detect successful login even if URL remains on login.aspx
+   */
+  private async checkForAuthenticatedChrome(): Promise<boolean> {
+    if (!this.page) return false;
+
+    try {
+      const pageContent = await this.page.content();
+      
+      // Check for logout link presence (authenticated indicator)
+      const hasLogoutLink = 
+        pageContent.includes('salir.aspx') ||
+        pageContent.includes('ctl00_btnSalir_lkButton') ||
+        pageContent.includes('icon-salida');
+
+      if (hasLogoutLink) {
+        this.log('✅ Found authenticated chrome (logout link)');
+        return true;
+      }
+
+      // Also check iframe content for authenticated indicators
+      const iframeElement = await this.page.$(BANESCO_URLS.IFRAME_SELECTOR);
+      if (iframeElement) {
+        const frame = await iframeElement.contentFrame();
+        if (frame) {
+          const frameContent = await frame.content();
+          if (frameContent.includes('salir.aspx') || 
+              frameContent.includes('Cerrar Sesión') ||
+              frameContent.includes('Bienvenido')) {
+            this.log('✅ Found authenticated indicators in iframe');
+            return true;
+          }
+        }
+      }
+
+      return false;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Verify if login was successful using Banesco-specific indicators
    */
   protected async verifyLoginSuccess(): Promise<boolean> {
     if (!this.page) return false;
 
+    // Reset any previous error
+    this.lastBanescoError = null;
+
     try {
       this.log('🔍 Verifying login success...');
       
-      // Wait longer for page to fully load after final submit
-      await this.page.waitForTimeout(5000);
+      // Poll for URL change (up to 15 seconds)
+      const MAX_WAIT_MS = 15000;
+      const POLL_INTERVAL_MS = 500;
+      let elapsed = 0;
+      
+      while (elapsed < MAX_WAIT_MS) {
+        await this.page.waitForTimeout(POLL_INTERVAL_MS);
+        elapsed += POLL_INTERVAL_MS;
+        
+        const currentUrl = this.page.url().toLowerCase();
+        
+        // Check if we've navigated away from login page
+        if (currentUrl.includes('default.aspx') || 
+            currentUrl.includes('principal.aspx') ||
+            currentUrl.includes('index.aspx')) {
+          this.log(`📍 Current URL: ${this.page.url()}`);
+          this.log('✅ Login verification successful by URL pattern');
+          return true;
+        }
+
+        // Check for authenticated chrome (logout link) early
+        if (await this.checkForAuthenticatedChrome()) {
+          this.log(`📍 Current URL: ${this.page.url()}`);
+          return true;
+        }
+
+        // Check for Banesco error page in iframe (fail fast on outage)
+        const errorDetails = await this.checkForBanescoErrorPage();
+        if (errorDetails) {
+          this.lastBanescoError = errorDetails;
+          const errorInfo = errorDetails.errorCode 
+            ? `${errorDetails.errorCode}${errorDetails.server ? ' / ' + errorDetails.server : ''}`
+            : 'unknown';
+          this.log(`❌ Banesco error page detected (${errorInfo}): ${errorDetails.message}`);
+          return false;
+        }
+      }
       
       const currentUrl = this.page.url();
       this.log(`📍 Current URL: ${currentUrl}`);
+
+      // Final check for Banesco error page before trying navigation
+      const errorBeforeNav = await this.checkForBanescoErrorPage();
+      if (errorBeforeNav) {
+        this.lastBanescoError = errorBeforeNav;
+        const errorInfo = errorBeforeNav.errorCode 
+          ? `${errorBeforeNav.errorCode}${errorBeforeNav.server ? ' / ' + errorBeforeNav.server : ''}`
+          : 'unknown';
+        this.log(`❌ Banesco error page detected (${errorInfo}): ${errorBeforeNav.message}`);
+        return false;
+      }
       
-      // Check for successful login indicators in URL
-      const successUrlPatterns = [
-        'default.aspx',
-        'Default.aspx',
-        'Principal.aspx',
-        'Dashboard',
-        'Home',
-        'WebSite/Default'
-      ];
-      
-      const failurePatterns = [
-        'Login.aspx',
-        'login.aspx',
-        'CAU/inicio',
-        'LoginDNA'
-      ];
-      
+      // Still on login page - try to navigate to dashboard explicitly
       const urlLower = currentUrl.toLowerCase();
-      
-      // Check if URL indicates success
-      const urlBasedSuccess = successUrlPatterns.some(pattern => 
-        urlLower.includes(pattern.toLowerCase())
-      );
-      
-      // But also check if we're NOT still on a login page
-      const stillOnLogin = failurePatterns.some(pattern =>
-        urlLower.includes(pattern.toLowerCase())
-      );
-      
-      if (urlBasedSuccess && !stillOnLogin) {
-        this.log('✅ Login verification successful by URL pattern');
-        return true;
+      if (urlLower.includes('login.aspx')) {
+        this.log('⚠️ Still on login page, trying explicit navigation to dashboard...');
+        
+        try {
+          await this.page.goto('https://www.banesconline.com/Mantis/WebSite/Default.aspx', {
+            waitUntil: 'domcontentloaded',
+            timeout: 10000
+          });
+          await this.page.waitForTimeout(2000);
+          
+          const newUrl = this.page.url().toLowerCase();
+          if (newUrl.includes('default.aspx') && !newUrl.includes('login')) {
+            this.log('✅ Login verified - navigated to dashboard successfully');
+            return true;
+          }
+          
+          // If we got redirected back to login, check for error page again
+          if (newUrl.includes('login.aspx')) {
+            const errorAfterNav = await this.checkForBanescoErrorPage();
+            if (errorAfterNav) {
+              this.lastBanescoError = errorAfterNav;
+              const errorInfo = errorAfterNav.errorCode 
+                ? `${errorAfterNav.errorCode}${errorAfterNav.server ? ' / ' + errorAfterNav.server : ''}`
+                : 'unknown';
+              this.log(`❌ Banesco unavailable (${errorInfo}): ${errorAfterNav.message}`);
+              return false;
+            }
+            this.log('❌ Login failed - redirected back to login page');
+            return false;
+          }
+        } catch (navError) {
+          this.log(`⚠️ Navigation error: ${navError}`);
+        }
       }
       
       // Check page content for authenticated indicators
@@ -521,11 +890,12 @@ export class BanescoAuth extends BaseBankAuth<
         const authenticatedIndicators = [
           'Cerrar Sesión',
           'cerrar sesion',
-          'Salir',
           'Bienvenido',
           'Mi cuenta',
           'Saldo disponible',
-          'Consulta de saldos'
+          'Consulta de saldos',
+          'Cuenta Corriente',
+          'Cuenta de Ahorro'
         ];
         
         for (const indicator of authenticatedIndicators) {
@@ -555,20 +925,39 @@ export class BanescoAuth extends BaseBankAuth<
         // Continue with other checks
       }
       
-      // If URL changed from login page, consider it a success
-      if (!stillOnLogin) {
-        this.log('✅ Login appears successful - no longer on login page');
-        return true;
+      // Final check - if we're still on login page, authentication failed
+      const finalUrl = this.page.url().toLowerCase();
+      if (finalUrl.includes('login.aspx')) {
+        // One last check for error page
+        const finalError = await this.checkForBanescoErrorPage();
+        if (finalError) {
+          this.lastBanescoError = finalError;
+          const errorInfo = finalError.errorCode 
+            ? `${finalError.errorCode}${finalError.server ? ' / ' + finalError.server : ''}`
+            : 'unknown';
+          this.log(`❌ Banesco unavailable (${errorInfo}): ${finalError.message}`);
+        } else {
+          this.log('❌ Login verification failed - still on login page');
+          this.log(`   URL: ${this.page.url()}`);
+        }
+        return false;
       }
       
-      this.log('❌ Login verification failed - still appears to be on login page');
-      this.log(`   URL: ${currentUrl}`);
-      return false;
+      // We're not on login page, consider it a success
+      this.log('✅ Login appears successful - no longer on login page');
+      return true;
       
     } catch (error) {
       this.log(`❌ Error during login verification: ${error}`);
       return false;
     }
+  }
+
+  /**
+   * Get the last detected Banesco error details (if any)
+   */
+  getLastBanescoError(): BanescoErrorDetails | null {
+    return this.lastBanescoError;
   }
 
   /**

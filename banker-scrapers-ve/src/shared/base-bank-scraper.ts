@@ -8,14 +8,14 @@
 
 import { Page } from 'playwright';
 import type { BankTransaction, ScrapingResult } from './types/index.js';
-import { writeFileSync, appendFileSync, existsSync, readFileSync } from 'fs';
+import { createLogger, type LogLevel, type Logger } from './utils/logger.js';
 
 export interface BaseBankScrapingConfig {
   debug?: boolean;         // Default: false
   timeout?: number;        // Default: 30000ms
   waitBetweenActions?: number;  // Default: 1000ms
   retries?: number;        // Default: 3
-  saveHtml?: boolean;      // Default: false
+  logLevel?: LogLevel;     // Default: 'warn'
   performance?: {          // Performance optimization settings
     blockCSS?: boolean;
     blockImages?: boolean;
@@ -34,27 +34,23 @@ export abstract class BaseBankScraper<
 > {
   protected page: Page;
   protected config: Required<TConfig>;
-  protected logFile: string;
   protected bankName: string;
+  protected logger: Logger;
 
   constructor(bankName: string, page: Page, config: TConfig) {
     this.bankName = bankName;
     this.page = page;
     this.config = this.getDefaultConfig(config);
     
-    // Setup log file
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    this.logFile = `${bankName.toLowerCase()}-scraper-${timestamp}.log`;
+    // Initialize logger with configured level
+    const logLevel = config.logLevel ?? 'warn';
+    this.logger = createLogger(`${bankName}Scraper`, { level: logLevel });
     
-    this.log(`🏦 ${bankName} Scraper initialized with performance optimizations`);
+    this.logger.info(`${bankName} Scraper initialized`);
     
     if ((this.config as any).performance) {
       const perf = (this.config as any).performance;
-      this.log(`⚡ Scraper performance config: CSS:${perf.blockCSS}, IMG:${perf.blockImages}, JS:${perf.blockNonEssentialJS}`);
-    }
-    
-    if (this.config.debug) {
-      this.log('🐛 Debug mode enabled - enhanced logging and pauses available');
+      this.logger.debug(`Performance config: CSS:${perf.blockCSS}, IMG:${perf.blockImages}, JS:${perf.blockNonEssentialJS}`);
     }
   }
 
@@ -68,15 +64,15 @@ export abstract class BaseBankScraper<
       timeout: 30000,
       waitBetweenActions: 1000,
       retries: 3,
-      saveHtml: false,
+      logLevel: 'warn',
       performance: {
-        blockCSS: false,        // More conservative for scrapers
-        blockImages: true,      // Usually safe to block
-        blockFonts: true,       // Safe to block
-        blockMedia: true,       // Safe to block
-        blockNonEssentialJS: false, // Be careful with JS on scrapers
-        blockAds: true,         // Always safe to block
-        blockAnalytics: true    // Always safe to block
+        blockCSS: false,
+        blockImages: true,
+        blockFonts: true,
+        blockMedia: true,
+        blockNonEssentialJS: false,
+        blockAds: true,
+        blockAnalytics: true
       },
       ...config
     } as Required<TConfig>;
@@ -107,28 +103,11 @@ export abstract class BaseBankScraper<
   protected abstract getSelectors(): Record<string, string>;
 
   /**
-   * Common logging functionality
-   */
-  protected log(message: string): void {
-    const timestamp = new Date().toISOString();
-    const logEntry = `[${timestamp}] ${message}`;
-    
-    console.log(message);
-    
-    try {
-      appendFileSync(this.logFile, logEntry + '\n');
-    } catch (error) {
-      console.warn('Failed to write to log file:', error);
-    }
-  }
-
-  /**
    * Debug pause for development
    */
   protected async debugPause(message: string): Promise<void> {
     if (this.config.debug) {
-      this.log(`🐛 DEBUG PAUSE: ${message}`);
-      this.log('💡 Use Playwright Inspector to debug. Continue execution when ready.');
+      this.logger.debug(`DEBUG PAUSE: ${message}`);
       await this.page.pause();
     }
   }
@@ -140,16 +119,14 @@ export abstract class BaseBankScraper<
     const actualTimeout = timeout || this.config.timeout;
     
     try {
-      // Wait for element to exist
       await this.page.waitForSelector(selector, { timeout: actualTimeout });
       
-      // Wait for element to be visible and enabled
       await this.page.waitForFunction(
         (sel) => {
           const element = document.querySelector(sel) as HTMLElement;
           return element && 
-                 element.offsetParent !== null && // visible
-                 !element.hasAttribute('disabled'); // enabled
+                 element.offsetParent !== null &&
+                 !element.hasAttribute('disabled');
         },
         selector,
         { timeout: actualTimeout }
@@ -157,7 +134,7 @@ export abstract class BaseBankScraper<
       
       return true;
     } catch (error) {
-      this.log(`⚠️  Element not ready: ${selector} - ${error}`);
+      this.logger.debug(`Element not ready: ${selector}`);
       return false;
     }
   }
@@ -167,7 +144,7 @@ export abstract class BaseBankScraper<
    */
   protected async navigateToScrapingPage(): Promise<boolean> {
     try {
-      this.log(`🌐 Navigating to ${this.bankName} scraping page...`);
+      this.logger.debug(`Navigating to ${this.bankName} scraping page...`);
       
       const url = this.getScrapingUrl();
       await this.page.goto(url, {
@@ -175,13 +152,12 @@ export abstract class BaseBankScraper<
         timeout: this.config.timeout
       });
       
-      await this.debugPause('Scraping page loaded - ready to extract data');
+      await this.debugPause('Scraping page loaded');
       
-      this.log('✅ Navigation successful');
       return true;
       
     } catch (error) {
-      this.log(`❌ Navigation failed: ${error}`);
+      this.logger.error(`Navigation failed: ${error}`);
       return false;
     }
   }
@@ -195,24 +171,21 @@ export abstract class BaseBankScraper<
     tableCount: number;
   }> {
     try {
-      this.log(`🔍 Extracting table data using selector: ${tableSelector}`);
+      this.logger.debug(`Extracting table data: ${tableSelector}`);
       
       const tableData = await this.page.$$eval(tableSelector, (tables) => {
         return tables.map(table => {
-          // Ensure we're working with HTMLTableElement
           if (!(table instanceof HTMLTableElement)) {
             return { headers: [], rows: [] };
           }
           
           const rows = Array.from(table.rows);
           
-          // Extract headers (first row or thead)
           const headerRow = rows[0];
           const headers = headerRow ? Array.from(headerRow.cells).map(cell => 
             cell.textContent?.trim() || ''
           ) : [];
           
-          // Extract data rows (skip header)
           const dataRows = rows.slice(1).map(row => 
             Array.from(row.cells).map(cell => cell.textContent?.trim() || '')
           );
@@ -222,14 +195,13 @@ export abstract class BaseBankScraper<
       });
 
       if (tableData.length === 0) {
-        this.log('⚠️  No tables found');
+        this.logger.debug('No tables found');
         return { headers: [], rows: [], tableCount: 0 };
       }
 
-      // Use first table with data
       const firstTable = tableData[0];
       
-      this.log(`✅ Extracted table data: ${firstTable.headers.length} columns, ${firstTable.rows.length} rows`);
+      this.logger.debug(`Extracted: ${firstTable.headers.length} columns, ${firstTable.rows.length} rows`);
       
       return {
         headers: firstTable.headers,
@@ -238,7 +210,7 @@ export abstract class BaseBankScraper<
       };
       
     } catch (error) {
-      this.log(`❌ Error extracting table data: ${error}`);
+      this.logger.error(`Error extracting table data: ${error}`);
       return { headers: [], rows: [], tableCount: 0 };
     }
   }
@@ -251,7 +223,7 @@ export abstract class BaseBankScraper<
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        this.log(`🔘 Clicking element: ${selector} (attempt ${attempt}/${retries})`);
+        this.logger.debug(`Clicking: ${selector} (attempt ${attempt}/${retries})`);
         
         const ready = await this.waitForElementReady(selector);
         if (!ready) {
@@ -261,20 +233,18 @@ export abstract class BaseBankScraper<
         await this.page.click(selector);
         await this.page.waitForTimeout(this.config.waitBetweenActions ?? 1000);
         
-        this.log('✅ Click successful');
         return true;
         
       } catch (error) {
-        this.log(`❌ Click attempt ${attempt} failed: ${error}`);
+        this.logger.debug(`Click attempt ${attempt} failed`);
         
         if (attempt < retries) {
-          this.log('⏳ Waiting before retry...');
           await this.page.waitForTimeout(2000);
         }
       }
     }
     
-    this.log(`❌ All click attempts failed for: ${selector}`);
+    this.logger.warn(`All click attempts failed for: ${selector}`);
     return false;
   }
 
@@ -286,7 +256,7 @@ export abstract class BaseBankScraper<
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        this.log(`✏️  Filling field: ${selector} (attempt ${attempt}/${retries})`);
+        this.logger.debug(`Filling field: ${selector} (attempt ${attempt}/${retries})`);
         
         const ready = await this.waitForElementReady(selector);
         if (!ready) {
@@ -296,11 +266,10 @@ export abstract class BaseBankScraper<
         await this.page.fill(selector, value);
         await this.page.waitForTimeout(this.config.waitBetweenActions ?? 1000);
         
-        this.log('✅ Field filled successfully');
         return true;
         
       } catch (error) {
-        this.log(`❌ Fill attempt ${attempt} failed: ${error}`);
+        this.logger.debug(`Fill attempt ${attempt} failed`);
         
         if (attempt < retries) {
           await this.page.waitForTimeout(1000);
@@ -312,39 +281,19 @@ export abstract class BaseBankScraper<
   }
 
   /**
-   * Save HTML for debugging
-   */
-  protected async saveHtmlForDebug(filename: string): Promise<void> {
-    if (!this.config.saveHtml && !this.config.debug) return;
-    
-    try {
-      const content = await this.page.content();
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fullFilename = `${this.bankName.toLowerCase()}-${filename}-${timestamp}.html`;
-      
-      writeFileSync(fullFilename, content);
-      this.log(`📄 HTML saved: ${fullFilename}`);
-      
-    } catch (error) {
-      this.log(`❌ Failed to save HTML: ${error}`);
-    }
-  }
-
-  /**
    * Parse amount string to number
    */
   protected parseAmount(amountString: string): number {
     try {
-      // Remove currency symbols, spaces, and normalize
       const cleanAmount = amountString
-        .replace(/[^\d,.-]/g, '') // Remove non-numeric except ,.-
-        .replace(/\./g, '')       // Remove thousands separators
-        .replace(/,/g, '.');      // Convert comma to decimal point
+        .replace(/[^\d,.-]/g, '')
+        .replace(/\./g, '')
+        .replace(/,/g, '.');
       
       return parseFloat(cleanAmount) || 0;
       
     } catch (error) {
-      this.log(`⚠️  Failed to parse amount: ${amountString}`);
+      this.logger.debug(`Failed to parse amount: ${amountString}`);
       return 0;
     }
   }
@@ -354,7 +303,6 @@ export abstract class BaseBankScraper<
    */
   protected parseDate(dateString: string): string {
     try {
-      // Handle common Venezuelan date formats: DD/MM/YYYY, DD-MM-YYYY
       const cleanDate = dateString.replace(/[^\d/\-]/g, '');
       
       if (cleanDate.includes('/')) {
@@ -373,18 +321,20 @@ export abstract class BaseBankScraper<
         }
       }
       
-      return dateString; // Return as-is if can't parse
+      return dateString;
       
     } catch (error) {
-      this.log(`⚠️  Failed to parse date: ${dateString}`);
+      this.logger.debug(`Failed to parse date: ${dateString}`);
       return dateString;
     }
   }
 
   /**
-   * Export transactions to file
+   * Export transactions to file (only if explicitly enabled)
    */
   exportTransactions(transactions: TTransaction[], filename?: string): string {
+    const { writeFileSync } = require('fs');
+    
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const defaultFilename = `${this.bankName.toLowerCase()}-transactions-${timestamp}.json`;
@@ -398,34 +348,13 @@ export abstract class BaseBankScraper<
       };
       
       writeFileSync(exportFilename, JSON.stringify(exportData, null, 2));
-      this.log(`📤 Transactions exported to: ${exportFilename}`);
+      this.logger.info(`Transactions exported to: ${exportFilename}`);
       
       return exportFilename;
       
     } catch (error) {
-      this.log(`❌ Failed to export transactions: ${error}`);
+      this.logger.error(`Failed to export transactions: ${error}`);
       throw error;
     }
   }
-
-  /**
-   * Get log file path
-   */
-  getLogFile(): string {
-    return this.logFile;
-  }
-
-  /**
-   * Get log content
-   */
-  getLogContent(): string {
-    try {
-      if (existsSync(this.logFile)) {
-        return readFileSync(this.logFile, 'utf-8');
-      }
-      return 'Log file not found';
-    } catch (error) {
-      return `Error reading log file: ${error}`;
-    }
-  }
-} 
+}

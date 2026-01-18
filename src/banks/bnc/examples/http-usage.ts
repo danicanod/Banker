@@ -1,12 +1,12 @@
 /**
  * BNC HTTP Usage Example
- * 
- * Demonstrates how to use the pure HTTP-based BNC scraper for fast
- * transaction fetching without browser overhead.
- * 
+ *
+ * Demonstrates how to use the BNC client for fast
+ * transaction fetching with pure HTTP (no browser overhead).
+ *
  * Run with: npm run example:bnc
  * Or: tsx src/banks/bnc/examples/http-usage.ts
- * 
+ *
  * Environment variables:
  * - BNC_CARD: Your BNC card number
  * - BNC_ID: Your cédula (ID number)
@@ -17,23 +17,22 @@
 import { config } from 'dotenv';
 config();
 
-import { 
-  createBncHttpClient, 
+import {
+  createBncClient,
+  createBncHttpClient,
   quickHttpScrape,
-  createBncScraper 
 } from '../index.js';
-import type { BncCredentials } from '../types/index.js';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-function getCredentials(): BncCredentials {
-  const card = process.env.BNC_CARD;
+function getCredentials() {
+  const cardNumber = process.env.BNC_CARD;
   const id = process.env.BNC_ID;
   const password = process.env.BNC_PASSWORD;
 
-  if (!card || !id || !password) {
+  if (!cardNumber || !id || !password) {
     console.error('❌ Missing credentials. Set these environment variables:');
     console.error('   BNC_CARD: Your BNC card number');
     console.error('   BNC_ID: Your cédula (ID number)');
@@ -46,7 +45,7 @@ function getCredentials(): BncCredentials {
     process.exit(1);
   }
 
-  return { card, id, password };
+  return { cardNumber, id, password };
 }
 
 // ============================================================================
@@ -58,27 +57,32 @@ async function exampleQuickScrape() {
   console.log('Example 1: Quick HTTP Scrape');
   console.log('='.repeat(60) + '\n');
 
-  const credentials = getCredentials();
+  const { cardNumber, id, password } = getCredentials();
   const debug = process.env.BNC_DEBUG === 'true';
 
   console.log('🚀 Running quick HTTP scrape...');
   const startTime = Date.now();
 
-  const result = await quickHttpScrape(credentials, { debug });
+  const result = await quickHttpScrape(
+    { card: cardNumber, id, password },
+    { debug }
+  );
 
   const elapsed = Date.now() - startTime;
   console.log(`\n⏱️  Completed in ${elapsed}ms`);
 
   if (result.success) {
     console.log(`✅ Success: ${result.data?.length || 0} transactions found`);
-    
+
     // Show sample transactions
     if (result.data && result.data.length > 0) {
       console.log('\n📊 Sample transactions:');
       result.data.slice(0, 5).forEach((tx, i) => {
-        console.log(`   ${i + 1}. ${tx.date} | ${tx.type.toUpperCase().padEnd(6)} | ${tx.amount.toFixed(2).padStart(12)} | ${tx.description.substring(0, 30)}`);
+        console.log(
+          `   ${i + 1}. ${tx.date} | ${tx.type.toUpperCase().padEnd(6)} | ${String(tx.amount).padStart(12)} | ${tx.description.substring(0, 30)}`
+        );
       });
-      
+
       if (result.data.length > 5) {
         console.log(`   ... and ${result.data.length - 5} more`);
       }
@@ -99,75 +103,91 @@ async function exampleStepByStep() {
   console.log('Example 2: Step-by-step HTTP Client');
   console.log('='.repeat(60) + '\n');
 
-  const credentials = getCredentials();
+  const { cardNumber, id, password } = getCredentials();
   const debug = process.env.BNC_DEBUG === 'true';
 
   // Create client
   console.log('📡 Creating HTTP client...');
-  const client = createBncHttpClient(credentials, { 
-    debug,
-    timeout: 30000 
-  });
+  const client = createBncHttpClient(
+    { card: cardNumber, id, password },
+    { debug, timeout: 30000 }
+  );
 
   // Login
   console.log('🔐 Logging in...');
   const loginResult = await client.login();
-  
+
   if (!loginResult.success) {
     console.log(`❌ Login failed: ${loginResult.error}`);
     return null;
   }
-  
+
   console.log('✅ Login successful');
 
   // Fetch transactions
   console.log('📊 Fetching transactions...');
   const transactions = await client.fetchLast25Transactions();
-  
+
   console.log(`✅ Fetched ${transactions.data?.length || 0} transactions`);
-  
+
   // Clean up
   await client.reset();
-  
+
   return transactions;
 }
 
 // ============================================================================
-// Example 3: Using BncScraper wrapper
+// Example 3: Using BncClient (recommended)
 // ============================================================================
 
-async function exampleScraperWrapper() {
+async function exampleClientUsage() {
   console.log('\n' + '='.repeat(60));
-  console.log('Example 3: BncScraper wrapper');
+  console.log('Example 3: BncClient (Recommended)');
   console.log('='.repeat(60) + '\n');
 
-  const credentials = getCredentials();
+  const { cardNumber, id, password } = getCredentials();
   const debug = process.env.BNC_DEBUG === 'true';
 
-  // Create scraper
-  console.log('📡 Creating BNC scraper...');
-  const scraper = createBncScraper(credentials, {
-    debug,
-    closeAfterScraping: true
-  });
-
-  // Run complete scraping session
-  console.log('🚀 Running scraping session...');
-  const session = await scraper.scrapeAll();
-
-  console.log(`\n📊 Session Results:`);
-  console.log(`   Method used: ${session.method}`);
-  console.log(`   Auth success: ${session.authResult.success}`);
-  console.log(`   Transaction results: ${session.transactionResults.length}`);
-  
-  // Count total transactions
-  const totalTransactions = session.transactionResults.reduce(
-    (sum, result) => sum + (result.data?.length || 0),
-    0
+  // Create client
+  console.log('📡 Creating BNC client...');
+  const client = createBncClient(
+    { cardNumber, id, password },
+    { debug }
   );
-  console.log(`   Total transactions: ${totalTransactions}`);
 
-  return session;
+  // Login
+  console.log('🔐 Logging in...');
+  const loginResult = await client.login();
+
+  if (!loginResult.success) {
+    console.log(`❌ Login failed: ${loginResult.message}`);
+    return null;
+  }
+
+  console.log('✅ Login successful');
+
+  // Fetch transactions
+  console.log('📊 Fetching transactions...');
+  const result = await client.getTransactions();
+
+  console.log(`\n📊 Results:`);
+  console.log(`   Success: ${result.success}`);
+  console.log(`   Transactions: ${result.data?.length || 0}`);
+
+  // Show sample transactions
+  if (result.data && result.data.length > 0) {
+    console.log('\n📋 Sample transactions:');
+    result.data.slice(0, 5).forEach((tx, i) => {
+      console.log(
+        `   ${i + 1}. ${tx.date} | ${tx.type.toUpperCase().padEnd(6)} | ${String(tx.amount).padStart(12)} | ${tx.description.substring(0, 30)}`
+      );
+    });
+  }
+
+  // Clean up
+  await client.close();
+
+  return result;
 }
 
 // ============================================================================
@@ -184,8 +204,8 @@ async function main() {
   // Example 2: Step-by-step (uncomment to run)
   // await exampleStepByStep();
 
-  // Example 3: Scraper wrapper (uncomment to run)
-  // await exampleScraperWrapper();
+  // Example 3: BncClient (uncomment to run)
+  // await exampleClientUsage();
 
   console.log('\n✅ Examples completed!');
 }

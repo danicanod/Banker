@@ -1,0 +1,244 @@
+/**
+ * BanescoClient - Unified HTTP-first Client
+ *
+ * This is the recommended way to interact with Banesco online banking.
+ * Uses Playwright internally for login (required due to JS/iframe/security questions),
+ * then switches to HTTP for all data fetching (faster, more stable).
+ *
+ * @example
+ * ```typescript
+ * import { createBanescoClient } from '@danicanod/banker-venezuela';
+ *
+ * const client = createBanescoClient({
+ *   username: 'V12345678',
+ *   password: 'your_password',
+ *   securityQuestions: 'keyword1:answer1,keyword2:answer2'
+ * });
+ *
+ * await client.login();
+ * const accounts = await client.getAccounts();
+ * const movements = await client.getAccountMovements(accounts[0].accountNumber);
+ * await client.close();
+ * ```
+ */
+
+import { BanescoAuth } from './auth/banesco-auth.js';
+import {
+  BanescoHttpClient,
+  type BanescoHttpCredentials,
+  type BanescoHttpTransaction,
+  type BanescoAccount,
+  type BanescoAccountsResult,
+  type BanescoMovementsResult,
+} from './http/banesco-http-client.js';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface BanescoClientCredentials {
+  username: string;
+  password: string;
+  securityQuestions: string;
+}
+
+export interface BanescoClientConfig {
+  /** Run browser in headless mode (default: true) */
+  headless?: boolean;
+  /** Request timeout in ms (default: 60000 for login, 30000 for HTTP) */
+  timeout?: number;
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
+}
+
+export interface BanescoLoginResult {
+  success: boolean;
+  message: string;
+  cookieCount?: number;
+}
+
+// ============================================================================
+// BanescoClient
+// ============================================================================
+
+export class BanescoClient {
+  private credentials: BanescoClientCredentials;
+  private config: Required<BanescoClientConfig>;
+  private httpClient: BanescoHttpClient | null = null;
+  private auth: BanescoAuth | null = null;
+  private isLoggedIn: boolean = false;
+
+  constructor(credentials: BanescoClientCredentials, config: BanescoClientConfig = {}) {
+    this.credentials = credentials;
+    this.config = {
+      headless: config.headless ?? true,
+      timeout: config.timeout ?? 60000,
+      debug: config.debug ?? false,
+    };
+  }
+
+  private log(message: string): void {
+    if (this.config.debug) {
+      console.log(`[BanescoClient] ${message}`);
+    }
+  }
+
+  /**
+   * Login to Banesco using Playwright (handles JS, iframes, security questions),
+   * then transfer session cookies to HTTP client for subsequent operations.
+   */
+  async login(): Promise<BanescoLoginResult> {
+    this.log('Starting login flow...');
+
+    try {
+      // Step 1: Use Playwright for authentication
+      this.auth = new BanescoAuth(this.credentials, {
+        headless: this.config.headless,
+        timeout: this.config.timeout,
+      });
+
+      const loginResult = await this.auth.login();
+
+      if (!loginResult.success) {
+        return {
+          success: false,
+          message: loginResult.message || 'Login failed',
+        };
+      }
+
+      // Step 2: Extract cookies from Playwright session
+      const page = this.auth.getPage();
+      if (!page) {
+        throw new Error('No page available after login');
+      }
+
+      const playwrightCookies = await page.context().cookies();
+      this.log(`Extracted ${playwrightCookies.length} cookies from Playwright`);
+
+      // Step 3: Create HTTP client with extracted cookies
+      const httpCredentials: BanescoHttpCredentials = {
+        username: this.credentials.username,
+        password: this.credentials.password,
+        securityQuestions: this.credentials.securityQuestions,
+      };
+
+      this.httpClient = new BanescoHttpClient(httpCredentials, {
+        timeout: 30000,
+        debug: this.config.debug,
+        skipLogin: true,
+      });
+
+      // Import cookies from Playwright
+      this.httpClient.importCookiesFromPlaywright(playwrightCookies);
+
+      // Step 4: Close Playwright (no longer needed)
+      await this.auth.close();
+      this.auth = null;
+
+      this.isLoggedIn = true;
+      this.log('Login successful, switched to HTTP client');
+
+      return {
+        success: true,
+        message: 'Login successful',
+        cookieCount: playwrightCookies.length,
+      };
+    } catch (error: any) {
+      // Cleanup on error
+      if (this.auth) {
+        await this.auth.close();
+        this.auth = null;
+      }
+
+      return {
+        success: false,
+        message: error.message || 'Unknown login error',
+      };
+    }
+  }
+
+  /**
+   * Get list of accounts
+   */
+  async getAccounts(): Promise<BanescoAccountsResult> {
+    if (!this.httpClient || !this.isLoggedIn) {
+      return {
+        success: false,
+        message: 'Not logged in. Call login() first.',
+        accounts: [],
+      };
+    }
+
+    return this.httpClient.getAccounts();
+  }
+
+  /**
+   * Get movements/transactions for a specific account
+   */
+  async getAccountMovements(accountNumber: string): Promise<BanescoMovementsResult> {
+    if (!this.httpClient || !this.isLoggedIn) {
+      return {
+        success: false,
+        message: 'Not logged in. Call login() first.',
+        accountNumber,
+        transactions: [],
+      };
+    }
+
+    return this.httpClient.getAccountMovements(accountNumber);
+  }
+
+  /**
+   * Get transactions using the legacy method (fallback)
+   */
+  async getTransactions(): Promise<{
+    success: boolean;
+    message: string;
+    transactions: BanescoHttpTransaction[];
+    error?: string;
+  }> {
+    if (!this.httpClient || !this.isLoggedIn) {
+      return {
+        success: false,
+        message: 'Not logged in. Call login() first.',
+        transactions: [],
+      };
+    }
+
+    return this.httpClient.getTransactions();
+  }
+
+  /**
+   * Check if logged in
+   */
+  isAuthenticated(): boolean {
+    return this.isLoggedIn;
+  }
+
+  /**
+   * Close client and cleanup resources
+   */
+  async close(): Promise<void> {
+    if (this.auth) {
+      await this.auth.close();
+      this.auth = null;
+    }
+    this.httpClient = null;
+    this.isLoggedIn = false;
+    this.log('Client closed');
+  }
+}
+
+// ============================================================================
+// Factory Function
+// ============================================================================
+
+/**
+ * Create a new BanescoClient instance
+ */
+export function createBanescoClient(
+  credentials: BanescoClientCredentials,
+  config?: BanescoClientConfig
+): BanescoClient {
+  return new BanescoClient(credentials, config);
+}

@@ -15,10 +15,12 @@ const transactionInput = v.object({
   bank: v.string(), // bank code (e.g., "banesco", "bnc")
   accountId: v.optional(v.string()),
   txnKey: v.string(),
+  reference: v.optional(v.string()), // Bank-provided reference number
   date: v.string(),
   amount: v.number(),
   description: v.string(),
   type: v.union(v.literal("debit"), v.literal("credit")),
+  balance: v.optional(v.number()), // Optional - some transactions may not have balance
   raw: v.optional(v.any()),
 });
 
@@ -59,11 +61,14 @@ async function getOrCreateBank(
     color: "#666666",
   };
 
+  const now = Date.now();
   return await ctx.db.insert("banks", {
     code: bankCode,
     name: defaults.name,
     color: defaults.color,
     active: true,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
@@ -90,6 +95,18 @@ export const ingestTransactions = internalMutation({
         .first();
 
       if (existing) {
+        // Backfill missing fields (reference, bankCode)
+        const patches: Record<string, any> = {};
+        if (tx.reference && !existing.reference) {
+          patches.reference = tx.reference;
+        }
+        if (!existing.bankCode && tx.bank) {
+          patches.bankCode = tx.bank;
+        }
+        if (Object.keys(patches).length > 0) {
+          patches.updatedAt = Date.now();
+          await ctx.db.patch(existing._id, patches);
+        }
         skippedCount.duplicate++;
         continue;
       }
@@ -103,16 +120,22 @@ export const ingestTransactions = internalMutation({
 
       // Insert new transaction
       const now = Date.now();
+      // Extract reference from input or from raw data if available
+      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
       const txnId = await ctx.db.insert("transactions", {
         bankId,
+        bankCode: tx.bank,
         accountId: accountId ?? tx.accountId,
         txnKey: tx.txnKey,
+        reference: reference || undefined,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
         type: tx.type,
+        balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
+        updatedAt: now,
       });
 
       // Create "transaction.created" event
@@ -120,6 +143,7 @@ export const ingestTransactions = internalMutation({
         type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
+        bankCode: tx.bank,
         amount: tx.amount,
         description: tx.description,
         createdAt: now,
@@ -158,19 +182,9 @@ export const getRecentTransactions = query({
   },
   handler: async (ctx, { bank, limit = 50 }) => {
     if (bank) {
-      // Lookup bank by code to get bankId
-      const bankRecord = await ctx.db
-        .query("banks")
-        .withIndex("by_code", (q) => q.eq("code", bank))
-        .first();
-      
-      if (!bankRecord) {
-        return [];
-      }
-      
       return await ctx.db
         .query("transactions")
-        .withIndex("by_bankId", (q) => q.eq("bankId", bankRecord._id))
+        .withIndex("by_bankCode", (q) => q.eq("bankCode", bank))
         .order("desc")
         .take(limit);
     }
@@ -328,6 +342,19 @@ export const ingestFromLocal = mutation({
         .first();
 
       if (existing) {
+        // Backfill missing fields (reference, bankCode) even for duplicates
+        const patches: Record<string, any> = {};
+        const incomingRef = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
+        if (incomingRef && !existing.reference) {
+          patches.reference = incomingRef;
+        }
+        if (!existing.bankCode && tx.bank) {
+          patches.bankCode = tx.bank;
+        }
+        if (Object.keys(patches).length > 0) {
+          patches.updatedAt = Date.now();
+          await ctx.db.patch(existing._id, patches);
+        }
         skippedCount.duplicate++;
         continue;
       }
@@ -340,16 +367,22 @@ export const ingestFromLocal = mutation({
       }
 
       const now = Date.now();
+      // Extract reference from input or from raw data if available
+      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
       const txnId = await ctx.db.insert("transactions", {
         bankId,
+        bankCode: tx.bank,
         accountId: tx.accountId,
         txnKey: tx.txnKey,
+        reference: reference || undefined,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
         type: tx.type,
+        balance: tx.balance,
         raw: tx.raw,
         createdAt: now,
+        updatedAt: now,
       });
 
       // Create "transaction.created" event
@@ -357,6 +390,7 @@ export const ingestFromLocal = mutation({
         type: EVENT_TYPES.TRANSACTION_CREATED,
         txnId,
         bankId,
+        bankCode: tx.bank,
         amount: tx.amount,
         description: tx.description,
         createdAt: now,
@@ -377,6 +411,75 @@ export const ingestFromLocal = mutation({
 /**
  * Mutation: Create or update a bank
  */
+/**
+ * One-time backfill: Set bankCode on all transactions missing it
+ * Run this after schema migration to fix existing data
+ */
+export const backfillBankCodes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    // Get all banks to create a bankId -> code mapping
+    const banks = await ctx.db.query("banks").collect();
+    const bankIdToCode: Record<string, string> = {};
+    for (const bank of banks) {
+      bankIdToCode[bank._id] = bank.code;
+    }
+
+    // Get all transactions missing bankCode
+    const transactions = await ctx.db.query("transactions").collect();
+    let updated = 0;
+
+    for (const txn of transactions) {
+      if (!txn.bankCode && txn.bankId) {
+        const bankCode = bankIdToCode[txn.bankId];
+        if (bankCode) {
+          await ctx.db.patch(txn._id, {
+            bankCode,
+            updatedAt: Date.now(),
+          });
+          updated++;
+        }
+      }
+    }
+
+    return { updated, total: transactions.length };
+  },
+});
+
+/**
+ * One-time backfill: Extract reference from raw data for transactions missing it
+ * Run this to fix existing transactions that have reference in raw but not at top level
+ */
+export const backfillReferences = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const transactions = await ctx.db.query("transactions").collect();
+    let updated = 0;
+
+    for (const txn of transactions) {
+      // Skip if already has reference
+      if (txn.reference) continue;
+
+      // Try to extract reference from raw data
+      const raw = txn.raw as any;
+      const reference = raw?.reference ?? raw?.referenceNumber;
+
+      if (reference) {
+        await ctx.db.patch(txn._id, {
+          reference,
+          updatedAt: Date.now(),
+        });
+        updated++;
+      }
+    }
+
+    return { updated, total: transactions.length };
+  },
+});
+
+/**
+ * Mutation: Create or update a bank
+ */
 export const upsertBank = mutation({
   args: {
     code: v.string(),
@@ -391,12 +494,15 @@ export const upsertBank = mutation({
       .withIndex("by_code", (q) => q.eq("code", code))
       .first();
 
+    const now = Date.now();
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         name,
         logoUrl,
         color,
         active: active ?? existing.active,
+        updatedAt: now,
       });
       return existing._id;
     }
@@ -407,6 +513,8 @@ export const upsertBank = mutation({
       logoUrl,
       color,
       active: active ?? true,
+      createdAt: now,
+      updatedAt: now,
     });
   },
 });

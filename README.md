@@ -3,14 +3,14 @@
 <div align="center">
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
-![Playwright](https://img.shields.io/badge/Playwright-45ba4b?style=for-the-badge&logo=playwright&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 
-**TypeScript library for scraping Venezuelan bank accounts**
+**TypeScript library for connecting to Venezuelan bank accounts**
 
-[Installation](#installation) • [Quick Start](#quick-start) • [API](#api) • [Development](#development)
+[Installation](#installation) • [Quick Start](#quick-start) • [API Reference](#api-reference) • [Configuration](#configuration)
 
 </div>
 
@@ -18,10 +18,10 @@
 
 ## Supported Banks
 
-| Bank | Mode | Authentication | Transactions |
-|------|------|----------------|--------------|
-| **Banesco** | Hybrid (Playwright login + HTTP fetch) | Username + Password + Security Questions | Full history with date range |
-| **BNC** | HTTP-only (no browser) | Card + ID + Password (3-step) | Last 25 transactions |
+| Bank | Mode | Authentication | Transactions | Speed |
+|------|------|---------------|--------------|-------|
+| **Banesco** | Hybrid (Playwright login + HTTP fetch) | Username + Password + Security Questions | Full history | Fast after login |
+| **BNC** | Pure HTTP (no browser) | Card + ID + Password | Last 25 transactions | ~8-10x faster |
 
 ## Installation
 
@@ -29,104 +29,179 @@
 npm install @danicanod/banker-venezuela
 ```
 
-**Prerequisites:** Node.js >= 18, npm >= 8
+### Prerequisites
 
-Playwright Chromium is installed automatically via postinstall (required for Banesco).
+- Node.js >= 18
+- npm >= 8
+
+Playwright Chromium is installed automatically via postinstall (required for Banesco login).
 
 ## Quick Start
 
 ### Banesco (Hybrid Mode)
 
-```typescript
-import { BanescoScraper } from '@danicanod/banker-venezuela';
+Banesco requires Playwright for login (iframes + security questions), then uses HTTP for fast data fetch.
 
-const scraper = new BanescoScraper({
+```typescript
+import { createBanescoClient } from '@danicanod/banker-venezuela';
+
+const client = createBanescoClient({
   username: 'V12345678',
   password: 'your_password',
   securityQuestions: 'anime:Naruto,mascota:Firulais'
-}, {
-  headless: true,
-  performancePreset: 'AGGRESSIVE'
 });
 
-const session = await scraper.scrapeAll();
-console.log(`Transactions: ${session.transactionResults[0].data?.length}`);
+await client.login();
 
-await scraper.close();
+const accounts = await client.getAccounts();
+console.log(`Found ${accounts.accounts.length} account(s)`);
+
+const movements = await client.getAccountMovements(accounts.accounts[0].accountNumber);
+console.log(`Found ${movements.transactions.length} transactions`);
+
+await client.close();
 ```
 
-### BNC (HTTP-only)
+### BNC (Pure HTTP - No Browser)
+
+BNC uses pure HTTP requests - no browser automation needed. This is ~8-10x faster.
 
 ```typescript
-import { BncScraper } from '@danicanod/banker-venezuela';
+import { createBncClient } from '@danicanod/banker-venezuela';
 
-const scraper = new BncScraper({
+const client = createBncClient({
+  id: 'V12345678',
+  cardNumber: '1234567890123456',
+  password: 'your_password'
+});
+
+await client.login();
+
+const result = await client.getTransactions();
+console.log(`Found ${result.data?.length} transactions`);
+
+await client.close();
+```
+
+### Quick HTTP Scrape (BNC One-liner)
+
+```typescript
+import { quickHttpScrape } from '@danicanod/banker-venezuela';
+
+const result = await quickHttpScrape({
   id: 'V12345678',
   card: '1234567890123456',
   password: 'your_password'
 });
 
-const session = await scraper.scrapeAll();
-console.log(`Transactions: ${session.transactionResults[0].data?.length}`);
-
-await scraper.close();
+console.log(`Found ${result.data?.length} transactions`);
 ```
 
-### One-liner (Quick Scrape)
+## API Reference
+
+### BanescoClient (Recommended)
 
 ```typescript
-import { quickScrapeBanesco, quickScrapeBnc } from '@danicanod/banker-venezuela';
+import { createBanescoClient } from '@danicanod/banker-venezuela';
 
-const banescoTx = await quickScrapeBanesco({
-  username: 'V12345678',
-  password: 'your_password',
-  securityQuestions: 'anime:Naruto'
-});
+const client = createBanescoClient(credentials, config);
 
-const bncTx = await quickScrapeBnc({
-  id: 'V12345678',
-  card: '1234567890123456',
-  password: 'your_password'
-});
+// Login (uses Playwright internally)
+await client.login();
+
+// Fetch data (uses HTTP internally)
+const accounts = await client.getAccounts();
+const movements = await client.getAccountMovements(accountNumber);
+
+// Status
+client.isAuthenticated();
+
+// Cleanup
+await client.close();
 ```
 
-## Subpath Imports
-
-The package exports bank-specific modules for tree-shaking:
+### BncClient (Recommended)
 
 ```typescript
-// Main entry (all exports)
-import { BanescoScraper, BncScraper } from '@danicanod/banker-venezuela';
+import { createBncClient } from '@danicanod/banker-venezuela';
 
-// Bank-specific (smaller bundle)
-import { BanescoScraper } from '@danicanod/banker-venezuela/banesco';
-import { BncScraper } from '@danicanod/banker-venezuela/bnc';
+const client = createBncClient(credentials, config);
+
+// Login (pure HTTP)
+await client.login();
+
+// Fetch data (pure HTTP)
+const result = await client.getTransactions();
+
+// Status
+client.isAuthenticated();
+
+// Cleanup
+await client.close();
 ```
 
-## API
+### Advanced: BanescoAuth (Lower-level)
 
-Both scrapers expose the same interface:
+For more control over the Banesco authentication flow:
 
-| Method | Description |
-|--------|-------------|
-| `scrapeAll()` | Full session: authenticate + scrape transactions |
-| `isAuthenticated()` | Check authentication status |
-| `exportSession(session, filename?)` | Export session data to JSON file (returns filename) |
-| `close()` | Cleanup resources |
+```typescript
+import { BanescoAuth } from '@danicanod/banker-venezuela';
 
-**Banesco-only:**
-- `authenticate()` – Authenticate without scraping
-- `scrapeTransactions()` – Scrape transactions (requires prior auth)
-- `getPage()` – Get the authenticated Playwright page
+const auth = new BanescoAuth(credentials, config);
+const result = await auth.login();
 
-For detailed APIs, configuration options, and lower-level clients see the bank-specific docs:
+if (result.success) {
+  const page = auth.getPage();
+  const cookies = await page.context().cookies();
+  // Use cookies for custom HTTP requests...
+}
 
-- [Banesco documentation](src/banks/banesco/README.md)
-- [BNC documentation](src/banks/bnc/README.md)
+await auth.close();
+```
+
+### Advanced: BncHttpClient (Lower-level)
+
+For direct HTTP access to BNC:
+
+```typescript
+import { createBncHttpClient } from '@danicanod/banker-venezuela';
+
+const client = createBncHttpClient(credentials, { debug: true });
+
+const loginResult = await client.login();
+if (loginResult.success) {
+  const transactions = await client.fetchLast25Transactions();
+  console.log(transactions.data);
+}
+
+await client.reset();
+```
+
+## Configuration
+
+### Banesco Config
+
+```typescript
+interface BanescoClientConfig {
+  headless?: boolean;   // Default: true
+  timeout?: number;     // Default: 60000ms
+  debug?: boolean;      // Default: false
+}
+```
+
+### BNC Config
+
+```typescript
+interface BncClientConfig {
+  timeout?: number;     // Default: 30000ms
+  debug?: boolean;      // Default: false
+  logoutFirst?: boolean; // Default: true (clears existing sessions)
+}
+```
 
 ## Environment Variables
 
-Create a `.env` file based on [`env.example`](env.example):
+Create a `.env` file based on `env.example`:
 
 ```bash
 # Banesco
@@ -139,64 +214,98 @@ BNC_ID=V12345678
 BNC_CARD=1234567890123456
 BNC_PASSWORD=your_password
 
-# Convex (optional, for sync scripts)
+# Convex (for local sync scripts)
 CONVEX_URL=https://your-deployment.convex.cloud
 ```
 
-## Optional: Syncing to Convex
+## Examples
 
-Sync scripts push transactions to a Convex backend with idempotent ingestion:
+Run the included examples:
 
 ```bash
-npm run sync              # Banesco
-npm run sync:bnc          # BNC
+# Banesco example
+npm run example:banesco
+
+# Banesco hybrid example (step-by-step)
+npm run example:banesco-hybrid
+
+# BNC example (pure HTTP)
+npm run example:bnc
+
+# Performance examples
+npm run example:performance
 ```
 
-Requires `CONVEX_URL` in `.env` and a running Convex backend (`npx convex dev`).
+## Local Sync to Convex
 
----
+Sync transactions to a Convex backend with idempotent ingestion:
 
-## Development
+```bash
+# Sync Banesco transactions
+npm run sync              # or npm run sync:banesco
 
-### Project Structure
+# Sync BNC transactions (pure HTTP, fast)
+npm run sync:bnc
+```
+
+Features:
+- **Idempotent**: Duplicate transactions are automatically skipped
+- **Deterministic IDs**: Transaction keys are hash-based for collision resistance
+- **Events**: Each new transaction creates a `transaction.created` event for notifications
+
+Requirements:
+- Set `CONVEX_URL` in your `.env` file
+- Run `npx convex dev` to start your Convex backend
+
+## Architecture
 
 ```
 src/
 ├── index.ts                    # Main library exports
 ├── banks/
-│   ├── banesco/                # Hybrid: Playwright login + HTTP data
-│   └── bnc/                    # HTTP-only client
+│   ├── banesco/
+│   │   ├── client.ts           # BanescoClient (recommended)
+│   │   ├── auth/               # Playwright-based login
+│   │   ├── http/               # HTTP client for data fetch
+│   │   ├── types/              # TypeScript types
+│   │   └── examples/           # Usage examples
+│   └── bnc/
+│       ├── client.ts           # BncClient (recommended)
+│       ├── http/               # Pure HTTP client
+│       ├── types/              # TypeScript types
+│       └── examples/           # Usage examples
 └── shared/
-    ├── utils/                  # Browser, HTTP, session utilities
-    └── performance-config.ts   # Performance presets (Banesco)
+    ├── base-bank-auth.ts       # Abstract auth base class
+    ├── performance-config.ts   # Performance presets
+    └── utils/                  # Shared utilities
 ```
 
-### Scripts
+## Development
 
 ```bash
-npm install           # Install dependencies
-npm run build         # Compile TypeScript
-npm run type-check    # Type check without emitting
+# Install dependencies
+npm install
 
-# Examples
+# Type check
+npm run type-check
+
+# Build
+npm run build
+
+# Run examples
 npm run example:banesco
-npm run example:banesco-hybrid
 npm run example:bnc
-npm run example:performance
 ```
 
-### Session Persistence
-
-Banesco's optimized login flow stores browser sessions under `.sessions/` in the current working directory. Sessions expire after 24 hours and allow skipping security questions on repeat logins within that window.
-
-### Security Notes
+## Security
 
 - Never commit `.env` files or credentials
-- Session files (`.sessions/`) are gitignored
+- Session data is stored locally in `.sessions/` (24h expiry)
+- See [SECURITY.md](SECURITY.md) for security best practices
 
 ## License
 
-MIT License – see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
