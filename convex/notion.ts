@@ -15,11 +15,10 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction, action, internalMutation } from "./_generated/server";
+import { internalAction, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Client } from "@notionhq/client";
-import type { PageObjectResponse, PartialPageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
-import { Id } from "./_generated/dataModel";
+import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 
 // ============================================================================
 // Notion Property Name Constants
@@ -191,7 +190,7 @@ function buildTransactionProperties(txn: {
   date: string;
   amount: number;
   type: "debit" | "credit";
-  balance: number;
+  balance?: number;
   description: string;
   accountId?: string;
   convexId: string;
@@ -214,7 +213,7 @@ function buildTransactionProperties(txn: {
       select: { name: txn.type },
     },
     [NOTION_PROPS.TXN_BALANCE]: {
-      number: txn.balance,
+      number: txn.balance ?? 0,
     },
     [NOTION_PROPS.TXN_DESCRIPTION]: {
       rich_text: [{ text: { content: txn.description } }],
@@ -240,207 +239,6 @@ function buildTransactionProperties(txn: {
 }
 
 // ============================================================================
-// Internal Mutations (for updating Convex from actions)
-// ============================================================================
-
-/**
- * Update bank with Notion sync data
- */
-export const patchBankNotionData = internalMutation({
-  args: {
-    bankId: v.id("banks"),
-    notionPageId: v.optional(v.string()),
-    notionLastSyncedAt: v.optional(v.number()),
-    notionLastEditedAt: v.optional(v.number()),
-    // Fields that can be edited from Notion
-    name: v.optional(v.string()),
-    active: v.optional(v.boolean()),
-    color: v.optional(v.string()),
-    logoUrl: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { bankId, ...patch } = args;
-    const now = Date.now();
-    
-    // Filter out undefined values
-    const cleanPatch: Record<string, any> = { updatedAt: now };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined) {
-        cleanPatch[key] = value;
-      }
-    }
-    
-    await ctx.db.patch(bankId, cleanPatch);
-  },
-});
-
-/**
- * Update transaction with Notion sync data
- */
-export const patchTransactionNotionData = internalMutation({
-  args: {
-    txnId: v.id("transactions"),
-    notionPageId: v.optional(v.string()),
-    notionLastSyncedAt: v.optional(v.number()),
-    notionLastEditedAt: v.optional(v.number()),
-    // Fields that can be edited from Notion (limited set - no identity fields)
-    description: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { txnId, ...patch } = args;
-    const now = Date.now();
-    
-    // Filter out undefined values
-    const cleanPatch: Record<string, any> = { updatedAt: now };
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== undefined) {
-        cleanPatch[key] = value;
-      }
-    }
-    
-    await ctx.db.patch(txnId, cleanPatch);
-  },
-});
-
-/**
- * Get or create integration state
- */
-export const getOrCreateIntegrationState = internalMutation({
-  args: {
-    name: v.string(),
-  },
-  handler: async (ctx, { name }) => {
-    const existing = await ctx.db
-      .query("integration_state")
-      .withIndex("by_name", (q) => q.eq("name", name))
-      .first();
-    
-    if (existing) {
-      return existing;
-    }
-    
-    const id = await ctx.db.insert("integration_state", { name });
-    return await ctx.db.get(id);
-  },
-});
-
-/**
- * Update integration state
- */
-export const updateIntegrationState = internalMutation({
-  args: {
-    name: v.string(),
-    banksLastPullMs: v.optional(v.number()),
-    transactionsLastPullMs: v.optional(v.number()),
-    lastRunMs: v.optional(v.number()),
-    lastError: v.optional(v.string()),
-  },
-  handler: async (ctx, { name, ...updates }) => {
-    const existing = await ctx.db
-      .query("integration_state")
-      .withIndex("by_name", (q) => q.eq("name", name))
-      .first();
-    
-    if (!existing) {
-      await ctx.db.insert("integration_state", { name, ...updates });
-      return;
-    }
-    
-    // Filter out undefined values
-    const cleanPatch: Record<string, any> = {};
-    for (const [key, value] of Object.entries(updates)) {
-      if (value !== undefined) {
-        cleanPatch[key] = value;
-      }
-    }
-    
-    if (Object.keys(cleanPatch).length > 0) {
-      await ctx.db.patch(existing._id, cleanPatch);
-    }
-  },
-});
-
-/**
- * Get banks that need to be pushed to Notion
- */
-export const getBanksToPush = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const banks = await ctx.db.query("banks").collect();
-    
-    // Filter to banks that either have no notionPageId or have been updated since last sync
-    return banks.filter((bank) => {
-      if (!bank.notionPageId) return true;
-      if (!bank.notionLastSyncedAt) return true;
-      return (bank.updatedAt ?? 0) > bank.notionLastSyncedAt;
-    });
-  },
-});
-
-/**
- * Get transactions that need to be pushed to Notion
- */
-export const getTransactionsToPush = internalMutation({
-  args: {
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, { limit = 100 }) => {
-    const transactions = await ctx.db.query("transactions").take(limit * 2);
-    
-    // Filter to transactions that need sync
-    const toSync = transactions.filter((txn) => {
-      if (!txn.notionPageId) return true;
-      if (!txn.notionLastSyncedAt) return true;
-      return (txn.updatedAt ?? 0) > txn.notionLastSyncedAt;
-    });
-    
-    return toSync.slice(0, limit);
-  },
-});
-
-/**
- * Get bank by Convex ID (for relation lookups)
- */
-export const getBankById = internalMutation({
-  args: {
-    bankId: v.id("banks"),
-  },
-  handler: async (ctx, { bankId }) => {
-    return await ctx.db.get(bankId);
-  },
-});
-
-/**
- * Get bank by Notion page ID
- */
-export const getBankByNotionPageId = internalMutation({
-  args: {
-    notionPageId: v.string(),
-  },
-  handler: async (ctx, { notionPageId }) => {
-    return await ctx.db
-      .query("banks")
-      .withIndex("by_notionPageId", (q) => q.eq("notionPageId", notionPageId))
-      .first();
-  },
-});
-
-/**
- * Get transaction by Notion page ID
- */
-export const getTransactionByNotionPageId = internalMutation({
-  args: {
-    notionPageId: v.string(),
-  },
-  handler: async (ctx, { notionPageId }) => {
-    return await ctx.db
-      .query("transactions")
-      .withIndex("by_notionPageId", (q) => q.eq("notionPageId", notionPageId))
-      .first();
-  },
-});
-
-// ============================================================================
 // Sync Actions
 // ============================================================================
 
@@ -462,7 +260,7 @@ export const syncNotionPull = internalAction({
       const dbIds = getDatabaseIds();
       
       // Get integration state for last pull timestamps
-      const state = await ctx.runMutation(internal.notion.getOrCreateIntegrationState, {
+      const state = await ctx.runMutation(internal.notion_mutations.getOrCreateIntegrationState, {
         name: "notion",
       });
       
@@ -497,7 +295,7 @@ export const syncNotionPull = internalAction({
           }
           
           // Get the existing bank
-          const existingBank = await ctx.runMutation(internal.notion.getBankByNotionPageId, {
+          const existingBank = await ctx.runMutation(internal.notion_mutations.getBankByNotionPageId, {
             notionPageId: notionPage.id,
           });
           
@@ -516,7 +314,7 @@ export const syncNotionPull = internalAction({
             const color = getPropertyValue(notionPage, NOTION_PROPS.BANK_COLOR);
             const logoUrl = getPropertyValue(notionPage, NOTION_PROPS.BANK_LOGO_URL);
             
-            await ctx.runMutation(internal.notion.patchBankNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchBankNotionData, {
               bankId: existingBank._id,
               notionLastEditedAt: notionEditedAt,
               name: name || undefined,
@@ -560,7 +358,7 @@ export const syncNotionPull = internalAction({
             continue;
           }
           
-          const existingTxn = await ctx.runMutation(internal.notion.getTransactionByNotionPageId, {
+          const existingTxn = await ctx.runMutation(internal.notion_mutations.getTransactionByNotionPageId, {
             notionPageId: notionPage.id,
           });
           
@@ -576,7 +374,7 @@ export const syncNotionPull = internalAction({
             // Only description is editable from Notion (to protect identity fields)
             const description = getPropertyValue(notionPage, NOTION_PROPS.TXN_DESCRIPTION);
             
-            await ctx.runMutation(internal.notion.patchTransactionNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchTransactionNotionData, {
               txnId: existingTxn._id,
               notionLastEditedAt: notionEditedAt,
               description: description || undefined,
@@ -592,7 +390,7 @@ export const syncNotionPull = internalAction({
       }
       
       // Update integration state with new pull timestamps
-      await ctx.runMutation(internal.notion.updateIntegrationState, {
+      await ctx.runMutation(internal.notion_mutations.updateIntegrationState, {
         name: "notion",
         banksLastPullMs: pullStartTime,
         transactionsLastPullMs: pullStartTime,
@@ -638,7 +436,7 @@ export const syncNotionPush = internalAction({
       
       // Push Banks
       console.log("[Notion Push] Fetching banks to push...");
-      const banksToPush = await ctx.runMutation(internal.notion.getBanksToPush, {});
+      const banksToPush = await ctx.runMutation(internal.notion_mutations.getBanksToPush, {});
       console.log(`[Notion Push] Found ${banksToPush.length} banks to sync`);
       
       for (const bank of banksToPush) {
@@ -659,7 +457,7 @@ export const syncNotionPush = internalAction({
               properties: props,
             });
             
-            await ctx.runMutation(internal.notion.patchBankNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchBankNotionData, {
               bankId: bank._id,
               notionLastSyncedAt: now,
               notionLastEditedAt: notionDateToMs((response as NotionPage).last_edited_time),
@@ -674,7 +472,7 @@ export const syncNotionPush = internalAction({
               properties: props,
             });
             
-            await ctx.runMutation(internal.notion.patchBankNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchBankNotionData, {
               bankId: bank._id,
               notionPageId: response.id,
               notionLastSyncedAt: now,
@@ -693,7 +491,7 @@ export const syncNotionPush = internalAction({
       
       // Push Transactions
       console.log("[Notion Push] Fetching transactions to push...");
-      const txnsToPush = await ctx.runMutation(internal.notion.getTransactionsToPush, {
+      const txnsToPush = await ctx.runMutation(internal.notion_mutations.getTransactionsToPush, {
         limit: 100,
       });
       console.log(`[Notion Push] Found ${txnsToPush.length} transactions to sync`);
@@ -701,7 +499,7 @@ export const syncNotionPush = internalAction({
       for (const txn of txnsToPush) {
         try {
           // Get the bank's Notion page ID for the relation
-          const bank = await ctx.runMutation(internal.notion.getBankById, {
+          const bank = await ctx.runMutation(internal.notion_mutations.getBankById, {
             bankId: txn.bankId,
           });
           
@@ -724,7 +522,7 @@ export const syncNotionPush = internalAction({
               properties: props,
             });
             
-            await ctx.runMutation(internal.notion.patchTransactionNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchTransactionNotionData, {
               txnId: txn._id,
               notionLastSyncedAt: now,
               notionLastEditedAt: notionDateToMs((response as NotionPage).last_edited_time),
@@ -739,7 +537,7 @@ export const syncNotionPush = internalAction({
               properties: props,
             });
             
-            await ctx.runMutation(internal.notion.patchTransactionNotionData, {
+            await ctx.runMutation(internal.notion_mutations.patchTransactionNotionData, {
               txnId: txn._id,
               notionPageId: response.id,
               notionLastSyncedAt: now,
@@ -809,7 +607,7 @@ export const syncNotionAll = internalAction({
       
       // Update integration state
       const now = Date.now();
-      await ctx.runMutation(internal.notion.updateIntegrationState, {
+      await ctx.runMutation(internal.notion_mutations.updateIntegrationState, {
         name: "notion",
         lastRunMs: now,
         lastError: result.errors.length > 0 ? result.errors.join("; ") : undefined,
@@ -826,7 +624,7 @@ export const syncNotionAll = internalAction({
       console.error(`[Notion Sync] Fatal error: ${message}`);
       
       // Record the error
-      await ctx.runMutation(internal.notion.updateIntegrationState, {
+      await ctx.runMutation(internal.notion_mutations.updateIntegrationState, {
         name: "notion",
         lastRunMs: Date.now(),
         lastError: message,

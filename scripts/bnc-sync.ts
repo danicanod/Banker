@@ -105,6 +105,7 @@ async function main(): Promise<void> {
     description: tx.description,
     type: tx.type,
     balance: tx.balance || 0,
+    reference: tx.referenceNumber || tx.reference,
     accountId: tx.accountName,
     raw: tx,
   }));

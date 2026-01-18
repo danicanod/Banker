@@ -903,14 +903,31 @@ export class BanescoHttpClient {
       transactionType = 'debit';
     }
     
-    // Find description (longest text that's not date/amount)
+    // Find reference number (usually 12 digits, e.g., "052696255972")
+    let reference: string | undefined = undefined;
+    for (const cell of cells) {
+      const trimmed = cell.trim().replace(/\s/g, '');
+      // Reference is typically 12 digits starting with 0 (Banesco format)
+      if (/^0\d{11}$/.test(trimmed)) {
+        reference = trimmed;
+        break;
+      }
+      // Also try 6+ digit numbers that aren't amounts
+      if (/^\d{6,12}$/.test(trimmed) && !trimmed.includes(',') && !trimmed.includes('.')) {
+        reference = trimmed;
+        // Don't break - prefer 12-digit references
+      }
+    }
+    
+    // Find description (longest text that's not date/amount/reference)
     let description = '';
     for (const cell of cells) {
       const trimmed = cell.trim();
-      // Skip if it looks like date, amount, or D/C
+      // Skip if it looks like date, amount, D/C, or reference
       if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(trimmed)) continue;
       if (/^[\d\.,\-]+$/.test(trimmed.replace(/\s/g, ''))) continue;
       if (/^[DC]$/i.test(trimmed)) continue;
+      if (/^\d{6,12}$/.test(trimmed.replace(/\s/g, ''))) continue; // Skip reference numbers
       
       if (trimmed.length > description.length && trimmed.length > 3) {
         description = trimmed;
@@ -928,7 +945,7 @@ export class BanescoHttpClient {
       amount,
       type: transactionType,
       balance: undefined,
-      reference: undefined
+      reference
     };
   }
 

@@ -55,7 +55,8 @@ export default defineSchema({
     bankId: v.id("banks"),
     
     // Keep bank code for easy querying (denormalized)
-    bankCode: v.string(),
+    // Note: optional for backwards compatibility with existing data
+    bankCode: v.optional(v.string()),
     
     // Account identifier (optional, for multi-account support)
     accountId: v.optional(v.string()),
@@ -63,12 +64,16 @@ export default defineSchema({
     // Deterministic unique key for idempotent inserts
     txnKey: v.string(),
     
+    // Bank-provided reference number (for matching with Notion)
+    reference: v.optional(v.string()),
+    
     // Transaction details
     date: v.string(),
     amount: v.number(),
     description: v.string(),
     type: v.union(v.literal("debit"), v.literal("credit")),
-    balance: v.number(),
+    // Note: optional for backwards compatibility with existing data
+    balance: v.optional(v.number()),
     
     // Store the complete raw transaction for reference
     raw: v.optional(v.any()),
@@ -86,6 +91,7 @@ export default defineSchema({
     .index("by_bankId", ["bankId"])
     .index("by_bankCode", ["bankCode"])
     .index("by_bankCode_date", ["bankCode", "date"])
+    .index("by_bankCode_reference", ["bankCode", "reference"])
     .index("by_createdAt", ["createdAt"])
     .index("by_notionPageId", ["notionPageId"]),
 

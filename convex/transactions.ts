@@ -15,6 +15,7 @@ const transactionInput = v.object({
   bank: v.string(), // bank code (e.g., "banesco", "bnc")
   accountId: v.optional(v.string()),
   txnKey: v.string(),
+  reference: v.optional(v.string()), // Bank-provided reference number
   date: v.string(),
   amount: v.number(),
   description: v.string(),
@@ -107,11 +108,14 @@ export const ingestTransactions = internalMutation({
 
       // Insert new transaction
       const now = Date.now();
+      // Extract reference from input or from raw data if available
+      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
       const txnId = await ctx.db.insert("transactions", {
         bankId,
         bankCode: tx.bank,
         accountId: accountId ?? tx.accountId,
         txnKey: tx.txnKey,
+        reference: reference || undefined,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
@@ -338,11 +342,14 @@ export const ingestFromLocal = mutation({
       }
 
       const now = Date.now();
+      // Extract reference from input or from raw data if available
+      const reference = tx.reference ?? (tx.raw as any)?.reference ?? (tx.raw as any)?.referenceNumber;
       const txnId = await ctx.db.insert("transactions", {
         bankId,
         bankCode: tx.bank,
         accountId: tx.accountId,
         txnKey: tx.txnKey,
+        reference: reference || undefined,
         date: tx.date,
         amount: tx.amount,
         description: tx.description,
