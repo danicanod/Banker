@@ -65,7 +65,7 @@ test-results/
 playwright-report/
 playwright/.cache/
 
-# HTML captures and debug files
+# HTML captures and debug files (generated during scraping)
 html-captures/
 *.html
 
@@ -84,16 +84,14 @@ screenshots/
 artifacts/
 captures/
 
-# Session cache and data
+# Session cache and data (SENSITIVE - never commit)
+.sessions/
 banesco-session.json
 
 # IDE files
 *.swp
 *.swo
 *~
-
-# Logs
-*.log
 
 # Runtime data
 *.pid
@@ -116,14 +114,3 @@ jspm_packages/
 
 # Yarn Integrity file
 .yarn-integrity
-
-# PRIVATE FILES - Marketing and Strategy
-LAUNCH_STRATEGY.md
-MARKETING_NOTES.md
-PRIVATE_*
-*_PRIVATE.*
-launch-*.md
-
-# Sessions directory (contains sensitive session data)
-.sessions/
-trees/

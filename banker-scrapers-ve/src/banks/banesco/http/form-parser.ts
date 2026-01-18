@@ -226,19 +226,20 @@ export function parseTransactionsTable(html: string): {
   // Find tables that look like transaction tables
   let transactionTable: ReturnType<typeof $> | null = null;
   
-  tables.each((_, el) => {
-    const $el = $(el);
-    const headerText = $el.find('th, tr:first-child td').text().toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tables.each(function(this: any) {
+    const headerText = $(this).find('th, tr:first-child td').text().toLowerCase();
     if (headerText.includes('fecha') || headerText.includes('monto') || headerText.includes('descripción')) {
-      transactionTable = $el;
+      transactionTable = $(this);
       return false; // break
     }
   });
   
   if (!transactionTable) {
     // Fall back to first table with more than 1 row
-    transactionTable = tables.filter((_, el) => {
-      return $(el).find('tr').length > 1; 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transactionTable = tables.filter(function(this: any) { 
+      return $(this).find('tr').length > 1; 
     }).first();
   }
   
@@ -248,16 +249,19 @@ export function parseTransactionsTable(html: string): {
   
   // Extract headers
   const headers: string[] = [];
-  transactionTable.find('tr:first-child th, tr:first-child td').each((_, el) => {
-    headers.push($(el).text().trim());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transactionTable.find('tr:first-child th, tr:first-child td').each(function(this: any) {
+    headers.push($(this).text().trim());
   });
   
   // Extract rows
   const rows: string[][] = [];
-  transactionTable.find('tr').slice(1).each((_, rowEl) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transactionTable.find('tr').slice(1).each(function(this: any) {
     const rowData: string[] = [];
-    $(rowEl).find('td').each((_, cellEl) => {
-      rowData.push($(cellEl).text().trim());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    $(this).find('td').each(function(this: any) {
+      rowData.push($(this).text().trim());
     });
     if (rowData.length > 0) {
       rows.push(rowData);
@@ -623,7 +627,7 @@ export function parseAccountsFromDashboard(html: string): ParsedAccount[] {
         const cells = $row.find('td');
         let accountType = 'Cuenta';
         let balance = 0;
-        const currency = 'VES';
+        let currency = 'VES';
         
         // First cell is usually account type
         if (cells.length > 0) {
@@ -670,7 +674,7 @@ export function parseAccountsFromDashboard(html: string): ParsedAccount[] {
   if (accounts.length === 0) {
     // Look for the pattern: account number followed by balance
     const fullText = $('body').text();
-    const accountPatterns = fullText.matchAll(/(\d{4}-\d{4}-\d{2}-\d+)\s*([\d.,]+)/g);
+    const accountPatterns = fullText.matchAll(/(\d{4}-\d{4}-\d{2}-\d+)\s*([\d\.,]+)/g);
     
     for (const match of accountPatterns) {
       const accountNumber = match[1];
@@ -701,8 +705,9 @@ export function parseAccountsFromDashboard(html: string): ParsedAccount[] {
     $('table').each((_, table) => {
       const $table = $(table);
       
-      $table.find('tr').each((_, rowEl) => {
-        const $row = $(rowEl);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $table.find('tr').each(function(this: any, _: number, row: any) {
+        const $row = $(row);
         const rowText = $row.text();
         
         const accountMatch = rowText.match(/(\d{4}-\d{4}-\d{2}-\d+)/);
@@ -715,7 +720,7 @@ export function parseAccountsFromDashboard(html: string): ParsedAccount[] {
           
           // Find balance after account number
           const afterAccount = rowText.substring(rowText.indexOf(accountNumber) + accountNumber.length);
-          const balanceMatch = afterAccount.match(/([\d.,]+)/);
+          const balanceMatch = afterAccount.match(/([\d\.,]+)/);
           let balance = 0;
           if (balanceMatch) {
             const cleanAmount = balanceMatch[1]
@@ -770,7 +775,8 @@ export function parseMovementsTable(html: string): {
   }> = [];
   
   // Find the movements table - look for tables with date/reference/description headers
-  let movementsTable: ReturnType<typeof $> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let movementsTable: any = null;
   
   $('table').each((_, table) => {
     const $table = $(table);
@@ -785,13 +791,14 @@ export function parseMovementsTable(html: string): {
     }
   });
   
-  if (movementsTable === null) {
+  if (!movementsTable) {
     return { transactions: [], found: false };
   }
   
   // Parse rows
-  (movementsTable as ReturnType<typeof $>).find('tr').slice(1).each((_, rowEl) => {
-    const $row = $(rowEl);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  movementsTable.find('tr').slice(1).each(function(this: any, _: number, row: any) {
+    const $row = $(row);
     const cells = $row.find('td');
     
     if (cells.length < 3) return;
@@ -810,7 +817,7 @@ export function parseMovementsTable(html: string): {
     
     for (const cell of rowData) {
       // Date pattern (DD/MM/YYYY or DD-MM-YYYY)
-      if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(cell)) {
+      if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(cell)) {
         date = cell;
         continue;
       }
@@ -822,7 +829,7 @@ export function parseMovementsTable(html: string): {
       }
       
       // Amount patterns
-      const amountMatch = cell.match(/^[\d.,\-\s]+$/);
+      const amountMatch = cell.match(/^[\d\.,\-\s]+$/);
       if (amountMatch) {
         const cleanAmount = cell
           .replace(/\./g, '')

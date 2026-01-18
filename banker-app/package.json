@@ -1,0 +1,19 @@
+{
+  "name": "private-banker-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:banesco": "npx tsx scripts/banesco-sync.ts",
+    "sync:bnc": "npx tsx scripts/bnc-sync.ts"
+  },
+  "dependencies": {
+    "@danicanod/banker-scrapers-ve": "^0.1.0",
+    "convex": "^1.21.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4",
+    "typescript": "^5.0.0"
+  }
+}
