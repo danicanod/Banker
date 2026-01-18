@@ -38,8 +38,7 @@ interface Transaction {
   description: string;
   amount: number;
   type: "debit" | "credit";
-  balance: number;
-  reference?: string;
+  accountId?: string;
 }
 
 // ============================================================================
@@ -142,6 +141,7 @@ async function main(): Promise<void> {
               type: tx.type,
               balance: tx.balance || 0,
               reference: tx.reference,
+              accountId: account.accountNumber,
             });
           }
           log(`   ✅ ${movementsResult.transactions.length} transactions\n`);
@@ -175,8 +175,6 @@ async function main(): Promise<void> {
             description: tx.description,
             amount: tx.amount,
             type: tx.type,
-            balance: tx.balance || 0,
-            reference: tx.reference,
           });
         }
       }
@@ -204,8 +202,7 @@ async function main(): Promise<void> {
       amount: tx.amount,
       description: tx.description,
       type: tx.type,
-      balance: tx.balance,
-      reference: tx.reference,
+      accountId: tx.accountId,
       raw: tx,
     }));
 

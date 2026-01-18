@@ -41,7 +41,7 @@ export interface ScrapingResult<T> {
   error?: string;
   timestamp?: Date;
   message?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: any;
 }
 
 export interface BrowserConfig {
