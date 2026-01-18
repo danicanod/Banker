@@ -163,17 +163,37 @@ interface TxnKeyInput {
   amount: number;
   description: string;
   type: string;
+  reference?: string;
 }
 
 /**
  * Generate a deterministic transaction key (hash) for idempotent ingestion.
+ * 
+ * ## Key Contract
+ * 
+ * The key is a SHA-256 hash of: `bank|date|amount|type|reference_or_description`
+ * 
+ * - When `reference` is present and non-empty, it's used as the unique identifier
+ * - When `reference` is absent, `description` is used as fallback
+ * - Amount is always absolute value (positive)
+ * 
+ * This contract MUST be consistent across:
+ * - Local sync scripts (`scripts/*.ts`)
+ * - Convex Browserbase sync (`convex/sync.ts`)
+ * 
+ * @param bank - Bank code (e.g., "banesco", "bnc")
+ * @param tx - Transaction data
+ * @returns Deterministic key in format `{bank}-{16_char_hash}`
  */
 export function makeTxnKey(bank: string, tx: TxnKeyInput): string {
+  // Prefer reference when available (more stable identifier)
+  const identifier = tx.reference?.trim() || tx.description.trim();
   const key = [
+    bank,
     tx.date,
     String(Math.abs(tx.amount)),
-    tx.description.trim(),
     tx.type,
+    identifier,
   ].join("|");
   return `${bank}-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
 }
@@ -244,6 +264,27 @@ export async function ingestToConvex(
   const result = await convex.mutation(api.transactions.ingestFromLocal, {
     transactions,
   });
+  return result;
+}
+
+interface UpdateDescriptionResult {
+  updatedCount: number;
+  skippedCount: number;
+}
+
+/**
+ * Update descriptions for existing transactions.
+ * Useful when re-scraping to refresh memos/descriptions.
+ */
+export async function updateDescriptions(
+  convexUrl: string,
+  updates: Array<{ txnKey: string; description: string }>
+): Promise<UpdateDescriptionResult> {
+  const convex = new ConvexHttpClient(convexUrl);
+  const result = await convex.mutation(
+    api.notion_movimientos_mutations.batchUpdateDescriptions,
+    { updates }
+  );
   return result;
 }
 

@@ -84,3 +84,11 @@ bnc/
 │   └── http-usage.ts      # Usage examples
 └── README.md
 ```
+
+---
+
+**Navigation:**
+- [Back to banks overview](../README.md)
+- [Banesco client](../banesco/README.md)
+- [Shared utilities](../../shared/README.md)
+- [Root README](../../../README.md)

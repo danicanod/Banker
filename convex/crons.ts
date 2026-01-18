@@ -1,11 +1,29 @@
 /**
  * Convex Cron Jobs for Bank Transaction Sync
  * 
- * Copy this file to your Convex project's convex/ directory.
+ * Automated scheduling for bank scraping and Notion synchronization.
+ * All jobs run in Convex's serverless environment.
  * 
- * Schedules:
- * - Daily transaction sync via Browserbase (no external worker needed)
- * - Periodic Notion bidirectional sync
+ * ## Jobs
+ * 
+ * | Job | Schedule | Description |
+ * |-----|----------|-------------|
+ * | `sync-banesco-transactions` | 11:00 UTC (07:00 VE) | Banesco scrape via Browserbase |
+ * | `sync-notion-bidirectional` | Every 15 min | Notion pull + push |
+ * 
+ * ## Requirements
+ * 
+ * - Browserbase sync requires: `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`
+ * - Notion sync requires: `NOTION_API_TOKEN`, `NOTION_MOVIMIENTOS_DATABASE_ID`
+ * 
+ * ## Timezone Reference (Venezuela = UTC-4)
+ * 
+ * - 06:00 VE = 10:00 UTC
+ * - 07:00 VE = 11:00 UTC (current Banesco sync time)
+ * - 19:00 VE = 23:00 UTC
+ * 
+ * @see {@link internal.sync.syncBanescoDaily} - Browserbase scraping action
+ * @see {@link internal.notion.syncNotionAll} - Notion bidirectional sync
  */
 
 import { cronJobs } from "convex/server";

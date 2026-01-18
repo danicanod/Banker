@@ -133,11 +133,14 @@ async function main(): Promise<void> {
                 description: tx.description,
                 amount: tx.amount,
                 type: tx.type,
+                reference: tx.reference,
               }),
               date: tx.date || new Date().toISOString().split("T")[0],
               description: tx.description,
               amount: tx.amount,
               type: tx.type,
+              balance: tx.balance || 0,
+              reference: tx.reference,
               accountId: account.accountNumber,
             });
           }
@@ -166,6 +169,7 @@ async function main(): Promise<void> {
               description: tx.description,
               amount: tx.amount,
               type: tx.type,
+              reference: tx.reference,
             }),
             date: tx.date || new Date().toISOString().split("T")[0],
             description: tx.description,

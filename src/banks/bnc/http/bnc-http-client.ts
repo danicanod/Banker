@@ -775,11 +775,16 @@ export class BncHttpClient {
         const reference = $(cells[2]).text().trim();
         const amountStr = $(cells[3]).text().trim();
 
-        // Try to get description from expanded row
-        const nextRow = $(row).next('tr.no-padding');
+        // Try to get description/memo from the next row (BNC uses collapsible detail rows)
+        const nextRow = $(row).next('tr');
         let description = '';
+        
         if (nextRow.length > 0) {
-          description = nextRow.find('.font-size-custom').first().text().trim();
+          // Try multiple selectors for the memo/description text
+          description = nextRow.find('.font-size-custom').first().text().trim()
+            || nextRow.find('.collapse').text().trim()
+            || nextRow.find('div').first().text().trim()
+            || nextRow.find('td').text().trim();
         }
 
         // Parse date (format: DD/MM/YYYY or similar)

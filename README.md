@@ -257,6 +257,20 @@ Requirements:
 - Set `CONVEX_URL` in your `.env` file
 - Run `npx convex dev` to start your Convex backend
 
+## Documentation
+
+Detailed documentation lives next to the code:
+
+| Directory | Description | README |
+|-----------|-------------|--------|
+| `src/` | TypeScript library source | [src/README.md](src/README.md) |
+| `src/banks/` | Bank client implementations | [src/banks/README.md](src/banks/README.md) |
+| `src/banks/banesco/` | Banesco hybrid client | [src/banks/banesco/README.md](src/banks/banesco/README.md) |
+| `src/banks/bnc/` | BNC pure HTTP client | [src/banks/bnc/README.md](src/banks/bnc/README.md) |
+| `src/shared/` | Shared utilities and base classes | [src/shared/README.md](src/shared/README.md) |
+| `convex/` | Convex backend + Notion sync | [convex/README.md](convex/README.md) |
+| `scripts/` | Local sync scripts | [scripts/README.md](scripts/README.md) |
+
 ## Architecture
 
 ```
