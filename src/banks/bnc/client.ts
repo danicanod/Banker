@@ -20,12 +20,8 @@
  * ```
  */
 
-import {
-  BncHttpClient,
-  type BncHttpConfig,
-  type BncHttpLoginResult,
-} from './http/bnc-http-client.js';
-import type { BncCredentials, BncTransaction, BncScrapingResult } from './types/index.js';
+import { BncHttpClient } from './http/bnc-http-client.js';
+import type { BncCredentials, BncScrapingResult } from './types/index.js';
 
 // ============================================================================
 // Types
@@ -56,20 +52,17 @@ export interface BncLoginResult {
 // ============================================================================
 
 export class BncClient {
-  private credentials: BncClientCredentials;
   private config: Required<BncClientConfig>;
   private httpClient: BncHttpClient;
   private isLoggedIn: boolean = false;
 
   constructor(credentials: BncClientCredentials, config: BncClientConfig = {}) {
-    this.credentials = credentials;
     this.config = {
       timeout: config.timeout ?? 30000,
       debug: config.debug ?? false,
       logoutFirst: config.logoutFirst ?? true,
     };
 
-    // Create HTTP client with BNC credentials format
     const bncCredentials: BncCredentials = {
       id: credentials.id,
       card: credentials.cardNumber,
@@ -107,10 +100,11 @@ export class BncClient {
         success: result.success,
         message: result.message,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        message: error.message || 'Unknown login error',
+        message: message || 'Unknown login error',
       };
     }
   }

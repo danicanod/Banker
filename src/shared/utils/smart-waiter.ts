@@ -1,4 +1,4 @@
-import { Page, Frame, Locator, ElementHandle } from 'playwright';
+import { Page, Frame, ElementHandle } from 'playwright';
 import { StrategicLogger } from './strategic-logger.js';
 
 export class SmartWaiter {

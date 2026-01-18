@@ -12,7 +12,7 @@
  */
 
 import 'dotenv/config';
-import { chromium, Browser, Page, BrowserContext } from 'playwright';
+import { chromium, Browser, Page, BrowserContext, ElementHandle } from 'playwright';
 import { NetworkLogger } from '../utils/network-logger.js';
 
 // ============================================================================
@@ -37,7 +37,7 @@ const config: CaptureConfig = {
 // Banesco Flow
 // ============================================================================
 
-async function captureBanescoFlow(page: Page, networkLogger: NetworkLogger): Promise<void> {
+async function captureBanescoFlow(page: Page, _networkLogger: NetworkLogger): Promise<void> {
   const username = process.env.BANESCO_USERNAME;
   const password = process.env.BANESCO_PASSWORD;
   const securityQuestions = process.env.BANESCO_SECURITY_QUESTIONS;
@@ -205,7 +205,7 @@ async function attemptTransactionNavigation(page: Page): Promise<void> {
     // Find all clickable elements with transaction-related text
     const links = await page.$$('a, button, [onclick]');
     
-    let bestLink: { element: any; text: string; score: number } | null = null;
+    let bestLink: { element: ElementHandle<SVGElement | HTMLElement>; text: string; score: number } | null = null;
     
     for (const link of links) {
       try {
@@ -330,7 +330,7 @@ async function attemptSecondLevelNavigation(page: Page): Promise<void> {
 // BNC Flow
 // ============================================================================
 
-async function captureBncFlow(page: Page, networkLogger: NetworkLogger): Promise<void> {
+async function captureBncFlow(page: Page, _networkLogger: NetworkLogger): Promise<void> {
   const cardNumber = process.env.BNC_CARD;
   const userId = process.env.BNC_ID;
   const password = process.env.BNC_PASSWORD;

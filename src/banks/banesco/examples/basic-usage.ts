@@ -121,8 +121,9 @@ async function main() {
     const elapsed = Date.now() - startTime;
     console.log(`\n⏱️  Total time: ${elapsed}ms`);
     console.log('✅ Example completed!');
-  } catch (error: any) {
-    console.error(`\n❌ Error: ${error.message}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`\n Error: ${message}`);
   } finally {
     await client.close();
   }

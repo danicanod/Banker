@@ -67,6 +67,34 @@ type SyncResult = {
 
 type NotionPage = PageObjectResponse;
 
+/** Notion rich text element structure */
+interface NotionRichTextItem {
+  plain_text: string;
+}
+
+/** Notion relation item structure */
+interface NotionRelationItem {
+  id: string;
+}
+
+/** Notion file item structure */
+interface NotionFileItem {
+  file?: { url: string };
+  external?: { url: string };
+}
+
+/** Notion property value types used in this codebase */
+type NotionPropertyInput = 
+  | { title: { text: { content: string } }[] }
+  | { rich_text: { text: { content: string } }[] }
+  | { number: number }
+  | { checkbox: boolean }
+  | { select: { name: string } }
+  | { status: { name: string } }
+  | { date: { start: string } }
+  | { url: string }
+  | { relation: { id: string }[] };
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -189,24 +217,24 @@ function notionDateToMs(isoDate: string): number {
 /**
  * Extract text from Notion rich text array
  */
-function extractRichText(richText: any[]): string {
-  return richText?.map((t: any) => t.plain_text).join("") || "";
+function extractRichText(richText: NotionRichTextItem[] | undefined): string {
+  return richText?.map((t) => t.plain_text).join("") || "";
 }
 
 /**
  * Extract property value from Notion page
  */
-function getPropertyValue(page: NotionPage, propName: string): any {
+function getPropertyValue(page: NotionPage, propName: string): string | number | boolean | string[] | undefined {
   const prop = page.properties[propName];
   if (!prop) return undefined;
 
   switch (prop.type) {
     case "title":
-      return extractRichText(prop.title);
+      return extractRichText(prop.title as NotionRichTextItem[]);
     case "rich_text":
-      return extractRichText(prop.rich_text);
+      return extractRichText(prop.rich_text as NotionRichTextItem[]);
     case "number":
-      return prop.number;
+      return prop.number ?? undefined;
     case "checkbox":
       return prop.checkbox;
     case "select":
@@ -214,13 +242,13 @@ function getPropertyValue(page: NotionPage, propName: string): any {
     case "status":
       return prop.status?.name;
     case "date":
-      return prop.date?.start;
+      return prop.date?.start ?? undefined;
     case "url":
-      return prop.url;
+      return prop.url ?? undefined;
     case "relation":
-      return prop.relation?.map((r: any) => r.id) || [];
+      return (prop.relation as NotionRelationItem[])?.map((r) => r.id) || [];
     case "files":
-      return prop.files?.map((f: any) => f.file?.url || f.external?.url).filter(Boolean) || [];
+      return (prop.files as NotionFileItem[])?.map((f) => f.file?.url || f.external?.url).filter((u): u is string => !!u) || [];
     default:
       return undefined;
   }
@@ -243,8 +271,8 @@ function buildMovimientoProperties(txn: {
   origenNotionPageId?: string;
   destinoNotionPageId?: string;
   categoriaNotionPageId?: string;
-}): Record<string, any> {
-  const props: Record<string, any> = {
+}): Record<string, NotionPropertyInput> {
+  const props: Record<string, NotionPropertyInput> = {
     [NOTION_MOV_PROPS.NOMBRE]: {
       title: [{ text: { content: txn.description.slice(0, 2000) } }],
     },

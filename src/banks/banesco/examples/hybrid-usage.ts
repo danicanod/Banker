@@ -137,8 +137,9 @@ async function main() {
     }
 
     console.log('\n✅ Hybrid flow completed!');
-  } catch (error: any) {
-    console.error(`\n❌ Error: ${error.message}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`\n Error: ${message}`);
   } finally {
     if (auth) {
       await auth.close();

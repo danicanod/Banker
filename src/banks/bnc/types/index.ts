@@ -1,12 +1,8 @@
 // Centralized types for BNC scraper
 
 import { 
-  BankCredentials, 
   BankAccount, 
   BankTransaction, 
-  LoginResult, 
-  ScrapingResult, 
-  BrowserConfig,
   BankConfig,
   BaseBankAuthConfig,
   BaseBankLoginResult,
@@ -18,10 +14,7 @@ import {
 // Re-export base types for convenience
 export type {
   BankAccount as Account,
-  BankTransaction as Transaction,
-  LoginResult,
-  ScrapingResult,
-  BrowserConfig
+  BankTransaction as Transaction
 } from '../../../shared/types/index.js';
 
 // BNC-specific credentials (3-step authentication) - extends base

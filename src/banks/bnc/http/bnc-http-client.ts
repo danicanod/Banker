@@ -19,11 +19,10 @@ import { createHash } from 'crypto';
 import { 
   CookieFetch, 
   createCookieFetch,
-  extractRequestVerificationToken,
-  extractTableData
+  extractRequestVerificationToken
 } from '../../../shared/utils/http-client.js';
 import type { BncCredentials, BncTransaction, BncScrapingResult } from '../types/index.js';
-import { BNC_URLS, BncAccountType } from '../types/index.js';
+import { BncAccountType } from '../types/index.js';
 
 // ============================================================================
 // Types
@@ -117,7 +116,7 @@ export class BncHttpClient {
       acceptLanguage: 'es-VE'
     });
 
-    this.log(`🏦 BncHttpClient initialized`);
+    this.log(`BncHttpClient initialized`);
     this.log(`   User ID: ${credentials.id.substring(0, 3)}***`);
   }
 
@@ -135,12 +134,12 @@ export class BncHttpClient {
     try {
       // Step 0: Logout first to clear any existing session
       if (this.config.logoutFirst) {
-        this.log('📍 Step 0: Clearing any existing session...');
+        this.log('Step 0: Clearing any existing session...');
         await this.logout();
       }
 
       // Step 1: Load login page and get initial token
-      this.log('📍 Step 1: Loading login page...');
+      this.log('Step 1: Loading login page...');
       const initialToken = await this.loadLoginPage();
       
       if (!initialToken) {
@@ -148,37 +147,37 @@ export class BncHttpClient {
       }
       
       this.currentToken = initialToken;
-      this.log(`   ✅ Got initial token (${initialToken.length} chars)`);
+      this.log(`   Got initial token (${initialToken.length} chars)`);
 
       // Step 2: Submit PreLogin (CardNumber + UserID)
-      this.log('📍 Step 2: Submitting PreLogin (card + user ID)...');
+      this.log('Step 2: Submitting PreLogin (card + user ID)...');
       const preLoginResult = await this.submitPreLogin();
       
       if (!preLoginResult.success) {
         throw new Error(preLoginResult.error || 'PreLogin failed');
       }
       
-      this.log('   ✅ PreLogin successful');
+      this.log('   PreLogin successful');
 
       // Step 3: Submit Login (Password)
-      this.log('📍 Step 3: Submitting password...');
+      this.log('Step 3: Submitting password...');
       const loginResult = await this.submitLogin();
       
       if (!loginResult.success) {
         throw new Error(loginResult.error || 'Login failed');
       }
       
-      this.log('   ✅ Password submitted');
+      this.log('   Password submitted');
 
       // Step 4: Verify authentication
-      this.log('📍 Step 4: Verifying authentication...');
+      this.log('Step 4: Verifying authentication...');
       const verified = await this.verifyAuthentication();
       
       const elapsed = Date.now() - startTime;
 
       if (verified) {
         this.isAuthenticated = true;
-        this.log(`✅ Login successful in ${elapsed}ms`);
+        this.log(`Login successful in ${elapsed}ms`);
         
         return {
           success: true,
@@ -194,15 +193,16 @@ export class BncHttpClient {
         };
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       const elapsed = Date.now() - startTime;
-      this.log(`❌ Login failed after ${elapsed}ms: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Login failed after ${elapsed}ms: ${message}`);
       
       return {
         success: false,
-        message: error.message,
+        message,
         authenticated: false,
-        error: error.message
+        error: message
       };
     }
   }
@@ -222,7 +222,7 @@ export class BncHttpClient {
       };
     }
 
-    this.log('📊 Fetching Last25 transactions...');
+    this.log('Fetching Last25 transactions...');
     const startTime = Date.now();
     const allTransactions: BncTransaction[] = [];
     const accountsScraped: string[] = [];
@@ -244,14 +244,15 @@ export class BncHttpClient {
         if (transactions.length > 0) {
           allTransactions.push(...transactions);
           accountsScraped.push(account.name);
-          this.log(`   ✅ Got ${transactions.length} transactions from ${account.name}`);
+          this.log(`   Got ${transactions.length} transactions from ${account.name}`);
         } else {
-          this.log(`   ⚠️  No transactions for ${account.name}`);
+          this.log(`    No transactions for ${account.name}`);
         }
 
-      } catch (error: any) {
-        const errorMsg = `Failed to fetch ${account.name}: ${error.message}`;
-        this.log(`   ❌ ${errorMsg}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        const errorMsg = `Failed to fetch ${account.name}: ${message}`;
+        this.log(`   ${errorMsg}`);
         errors.push(errorMsg);
       }
     }
@@ -303,20 +304,21 @@ export class BncHttpClient {
       await this.httpClient.clearCookies();
       
       if (backOnLogin) {
-        this.log('✅ Logout successful - redirected to login page');
+        this.log('Logout successful - redirected to login page');
         return { success: true, message: 'Logged out successfully' };
       } else {
-        this.log('⚠️  Logout endpoint hit but response unclear');
+        this.log(' Logout endpoint hit but response unclear');
         return { success: true, message: 'Logout request sent (response unclear)' };
       }
       
-    } catch (error: any) {
-      this.log(`⚠️  Logout error: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(` Logout error: ${message}`);
       // Still reset local state even if request failed
       this.isAuthenticated = false;
       this.currentToken = null;
       await this.httpClient.clearCookies();
-      return { success: false, message: error.message };
+      return { success: false, message };
     }
   }
 
@@ -381,12 +383,12 @@ export class BncHttpClient {
           const newToken = extractRequestVerificationToken(htmlContent);
           if (newToken) {
             this.currentToken = newToken;
-            this.log(`   ✅ Updated token from PreLogin response`);
+            this.log(`   Updated token from PreLogin response`);
           } else {
-            this.log(`   ⚠️  No token found in Value/Content, looking for password field...`);
+            this.log(`    No token found in Value/Content, looking for password field...`);
             // Check if we got the password form
             if (htmlContent.includes('UserPassword')) {
-              this.log(`   ✅ Password form detected`);
+              this.log(`   Password form detected`);
             }
           }
         }
@@ -508,11 +510,12 @@ export class BncHttpClient {
         return true;
       }
 
-      this.log(`   ⚠️  Verification uncertain - hasLogout: ${hasLogout}, hasWelcome: ${hasWelcome}`);
+      this.log(`    Verification uncertain - hasLogout: ${hasLogout}, hasWelcome: ${hasWelcome}`);
       return false;
 
-    } catch (error: any) {
-      this.log(`   ❌ Verification error: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`   Verification error: ${message}`);
       return false;
     }
   }
@@ -536,7 +539,7 @@ export class BncHttpClient {
     const token = extractRequestVerificationToken(pageHtml);
     
     if (!token) {
-      this.log(`   ⚠️  No token found on transactions page`);
+      this.log(`    No token found on transactions page`);
     }
     
     // Log what's on the page for debugging
@@ -583,7 +586,7 @@ export class BncHttpClient {
     // accountIndex is 1-based, so accountValues[0] = account 1, etc.
     const selectedAccountValue = accountValues[accountIndex - 1];
     if (!selectedAccountValue) {
-      this.log(`   ⚠️  No account found at index ${accountIndex} (available: ${accountValues.length})`);
+      this.log(`    No account found at index ${accountIndex} (available: ${accountValues.length})`);
       return [];
     }
     
@@ -639,8 +642,9 @@ export class BncHttpClient {
         }
       }
       
-    } catch (error: any) {
-      this.log(`   POST to transactions list failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`   POST to transactions list failed: ${message}`);
     }
 
     return [];
@@ -657,7 +661,7 @@ export class BncHttpClient {
     const table = $('#Tbl_Transactions');
     
     if (table.length === 0) {
-      this.log(`   ⚠️  No transaction table found`);
+      this.log(`    No transaction table found`);
       return [];
     }
 
@@ -714,7 +718,7 @@ export class BncHttpClient {
 
         transactions.push(transaction);
 
-      } catch (error) {
+      } catch {
         // Skip malformed rows
       }
     });
@@ -751,7 +755,7 @@ export class BncHttpClient {
 
   private parseAmount(amountString: string): number {
     // Remove currency symbols and spaces
-    let clean = amountString.replace(/[^\d,.\-]/g, '').trim();
+    let clean = amountString.replace(/[^\d,.-]/g, '').trim();
     
     // Handle Venezuelan format: 1.234,56 (dots for thousands, comma for decimals)
     // Check if comma appears after last dot (Venezuelan format)

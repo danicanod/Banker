@@ -15,29 +15,31 @@ export class HTMLSaver {
     }
   }
 
-  async saveHTML(page: any, filename: string): Promise<void> {
+  async saveHTML(page: unknown, filename: string): Promise<void> {
     try {
-      const content = await page.content();
+      const p = page as { content: () => Promise<string> };
+      const content = await p.content();
       const filePath = path.join(this.htmlDir, filename);
       fs.writeFileSync(filePath, content);
-      console.log(`💾 HTML guardado: ${filename} (${this.htmlDir})`);
+      console.log(`[html] saved: ${filename}`);
     } catch (error) {
-      console.log(`⚠️  No se pudo guardar ${filename}:`, error);
+      console.log(`[html] failed to save ${filename}:`, error);
     }
   }
 
-  async saveFrameHTML(frame: any, filename: string): Promise<void> {
+  async saveFrameHTML(frame: unknown, filename: string): Promise<void> {
     try {
-      const content = await frame.content();
+      const f = frame as { content: () => Promise<string> };
+      const content = await f.content();
       const filePath = path.join(this.htmlDir, filename);
       fs.writeFileSync(filePath, content);
-      console.log(`💾 HTML de frame guardado: ${filename} (${this.htmlDir})`);
+      console.log(`[html] saved frame: ${filename}`);
     } catch (error) {
-      console.log(`⚠️  No se pudo guardar frame ${filename}:`, error);
+      console.log(`[html] failed to save frame ${filename}:`, error);
     }
   }
 
   getOutputDir(): string {
     return this.htmlDir;
   }
-} 
+}

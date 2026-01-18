@@ -27,7 +27,6 @@ import {
   BanescoHttpClient,
   type BanescoHttpCredentials,
   type BanescoHttpTransaction,
-  type BanescoAccount,
   type BanescoAccountsResult,
   type BanescoMovementsResult,
 } from './http/banesco-http-client.js';
@@ -143,16 +142,17 @@ export class BanescoClient {
         message: 'Login successful',
         cookieCount: playwrightCookies.length,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Cleanup on error
       if (this.auth) {
         await this.auth.close();
         this.auth = null;
       }
 
+      const message = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        message: error.message || 'Unknown login error',
+        message: message || 'Unknown login error',
       };
     }
   }

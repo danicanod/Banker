@@ -29,7 +29,7 @@ export const patchTransactionMovimientosData = internalMutation({
     const now = Date.now();
 
     // Filter out undefined values
-    const cleanPatch: Record<string, any> = { updatedAt: now };
+    const cleanPatch: Record<string, string | number | boolean> = { updatedAt: now };
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) {
         cleanPatch[key] = value;
@@ -76,7 +76,7 @@ export const updateMovimientosState = internalMutation({
       .first();
 
     // Map to schema fields
-    const patch: Record<string, any> = {};
+    const patch: Record<string, string | number | boolean> = {};
     if (updates.lastPullMs !== undefined) {
       patch.transactionsLastPullMs = updates.lastPullMs;
     }

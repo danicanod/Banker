@@ -130,7 +130,7 @@ export class CookieFetch {
           if (cookie) {
             this.log(`   [Cookie] Set: ${cookie.key}=${cookie.value.substring(0, 20)}...`);
           }
-        } catch (e) {
+        } catch {
           // Ignore invalid cookies
         }
       }
@@ -139,9 +139,9 @@ export class CookieFetch {
 
       return response;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Request timeout after ${this.config.timeout}ms`);
       }
       throw error;

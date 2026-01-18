@@ -13,8 +13,7 @@ import {
   PerformanceConfig, 
   getBankPerformanceConfig, 
   getBlockedDomains, 
-  isEssentialJS,
-  PERFORMANCE_PRESETS
+  isEssentialJS
 } from './performance-config.js';
 
 /**
@@ -62,14 +61,14 @@ export abstract class BaseBankAuth<
     this.performanceConfig = getBankPerformanceConfig(
       bankName, 
       'auth',
-      (config as any).performancePreset
+      config.performancePreset
     );
     
     // Allow custom performance overrides
-    if ((config as any).performance) {
+    if (config.performance) {
       this.performanceConfig = { 
         ...this.performanceConfig,
-        ...(config as any).performance 
+        ...config.performance 
       };
     }
     
@@ -78,8 +77,8 @@ export abstract class BaseBankAuth<
     const userIdentifier = this.getUserIdentifier();
     this.logFile = `debug-${bankName.toLowerCase()}-${userIdentifier}-${timestamp}.log`;
     
-    this.log(`🏦 ${bankName} Auth initialized for user: ${this.getUserIdentifier()}***`);
-    this.log(`⚡ Performance config: CSS:${this.performanceConfig.blockCSS}, IMG:${this.performanceConfig.blockImages}, JS:${this.performanceConfig.blockNonEssentialJS}`);
+    this.log(`${bankName} Auth initialized for user: ${this.getUserIdentifier()}***`);
+    this.log(`Performance config: CSS:${this.performanceConfig.blockCSS}, IMG:${this.performanceConfig.blockImages}, JS:${this.performanceConfig.blockNonEssentialJS}`);
     
     if (this.config.debug) {
       this.log('🐛 Debug mode enabled - Playwright debugger will pause at key points');
@@ -226,7 +225,7 @@ export abstract class BaseBankAuth<
       
       return true;
     } catch (error) {
-      this.log(`⚠️  Element not ready: ${selector} - ${error}`);
+      this.log(` Element not ready: ${selector} - ${error}`);
       return false;
     }
   }
@@ -253,7 +252,7 @@ export abstract class BaseBankAuth<
       
       return true;
     } catch (error) {
-      this.log(`⚠️  Element not ready on frame: ${selector} - ${error}`);
+      this.log(` Element not ready on frame: ${selector} - ${error}`);
       return false;
     }
   }
@@ -272,17 +271,17 @@ export abstract class BaseBankAuth<
         try {
           const element = await this.page.$(selector);
           if (element && await element.isVisible()) {
-            this.log(`✅ Navigation detected: found ${selector} immediately`);
+            this.log(`Navigation detected: found ${selector} immediately`);
             return true;
           }
-        } catch (e) {
+        } catch {
           // Continue checking
         }
       }
       
       // If not immediate, wait for any of the expected selectors to appear
       if (expectedSelectors.length > 0) {
-        this.log(`🔍 Waiting for any of: ${expectedSelectors.join(', ')}`);
+        this.log(`Waiting for any of: ${expectedSelectors.join(', ')}`);
         
         try {
           await Promise.race(
@@ -290,27 +289,27 @@ export abstract class BaseBankAuth<
               this.page!.waitForSelector(selector, { timeout })
             )
           );
-          this.log('✅ Navigation detected: new content appeared');
+          this.log('Navigation detected: new content appeared');
           return true;
         } catch (raceError) {
-          this.log(`⚠️  None of expected elements appeared: ${raceError}`);
+          this.log(` None of expected elements appeared: ${raceError}`);
         }
       }
       
       // Fallback: wait for load state change
       try {
         await this.page.waitForLoadState('networkidle', { timeout: 5000 });
-        this.log('✅ Navigation completed: network idle');
+        this.log('Navigation completed: network idle');
         return true;
       } catch (loadError) {
-        this.log(`⚠️  Load state timeout: ${loadError}`);
+        this.log(` Load state timeout: ${loadError}`);
       }
       
-      this.log('✅ Navigation assumed successful - continuing');
+      this.log('Navigation assumed successful - continuing');
       return true;
       
     } catch (error) {
-      this.log(`⚠️  Navigation timeout: ${error}`);
+      this.log(` Navigation timeout: ${error}`);
       return false;
     }
   }
@@ -320,7 +319,7 @@ export abstract class BaseBankAuth<
    * Also adds missing headers that real browsers send
    */
   protected async setupRequestInterception(page: Page): Promise<void> {
-    this.log('⚡ Setting up performance optimizations...');
+    this.log('Setting up performance optimizations...');
     
     const blockedDomains = getBlockedDomains(this.performanceConfig);
     
@@ -338,7 +337,7 @@ export abstract class BaseBankAuth<
         const additionalHeaders: Record<string, string> = {};
         
         // Log POST interception
-        this.log(`🔧 INTERCEPTED POST: ${url.substring(0, 60)}...`);
+        this.log(`INTERCEPTED POST: ${url.substring(0, 60)}...`);
         this.log(`   Existing Origin: ${existingHeaders['origin'] || 'NONE'}`);
         
         if (!existingHeaders['origin']) {
@@ -414,7 +413,7 @@ export abstract class BaseBankAuth<
       await route.continue();
     });
     
-    this.log(`✅ Performance optimizations active - ${blockedDomains.length} domains blocked`);
+    this.log(`Performance optimizations active - ${blockedDomains.length} domains blocked`);
   }
 
   /**
@@ -422,7 +421,7 @@ export abstract class BaseBankAuth<
    * and stealth measures to avoid bot detection
    */
   protected async initializeBrowser(): Promise<void> {
-    this.log('🌐 Initializing optimized browser...');
+    this.log('Initializing optimized browser...');
     
     // Reset blocked stats for new session
     this.resetBlockedStats();
@@ -511,7 +510,7 @@ export abstract class BaseBankAuth<
       this.log('🐛 Optimized browser initialized in debug mode');
       this.log(`📱 Viewport: 1366x768, Headless: ${this.config.headless}`);
       this.log(`⏱️  Timeout: ${this.config.timeout}ms`);
-      this.log(`⚡ Performance optimizations: ${JSON.stringify(this.performanceConfig)}`);
+      this.log(`Performance optimizations: ${JSON.stringify(this.performanceConfig)}`);
       this.log(`📄 Log file: ${this.logFile}`);
     }
   }
@@ -526,7 +525,7 @@ export abstract class BaseBankAuth<
       
       // Monitor CAU/inicio requests (authenticated dashboard)
       if (url.includes('CAU') || url.includes('inicio')) {
-        this.log(`📡 ${status} ${url.substring(0, 80)}`);
+        this.log(`${status} ${url.substring(0, 80)}`);
         
         // Check for error responses
         const contentType = response.headers()['content-type'] || '';
@@ -544,7 +543,7 @@ export abstract class BaseBankAuth<
               this.log(`   - User-Agent: ${headers['user-agent']?.substring(0, 50) || 'MISSING'}`);
               this.log(`   - Cookie present: ${headers['cookie'] ? 'yes' : 'NO'}`);
             }
-          } catch (e) {
+          } catch {
             // Ignore body read errors
           }
         }
@@ -611,7 +610,8 @@ export abstract class BaseBankAuth<
       });
       
       // Override chrome runtime to look like real Chrome
-      (window as any).chrome = {
+      // Use unknown cast to safely assign to window.chrome (browser-specific global)
+      const chromeShim = {
         runtime: {
           connect: () => {},
           sendMessage: () => {},
@@ -620,11 +620,15 @@ export abstract class BaseBankAuth<
         loadTimes: () => ({}),
         csi: () => ({})
       };
+      (window as unknown as { chrome: typeof chromeShim }).chrome = chromeShim;
       
       // Override permissions API
       const originalQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
       if (originalQuery) {
-        (navigator as any).permissions.query = (parameters: any) => {
+        const permissions = navigator.permissions as Permissions & {
+          query: (desc: PermissionDescriptor) => Promise<PermissionStatus>;
+        };
+        permissions.query = (parameters: PermissionDescriptor) => {
           if (parameters.name === 'notifications') {
             return Promise.resolve({ state: 'denied', onchange: null } as PermissionStatus);
           }
@@ -642,7 +646,7 @@ export abstract class BaseBankAuth<
       };
     });
     
-    this.log('✅ Stealth measures applied');
+    this.log('Stealth measures applied');
   }
 
   /**
@@ -664,7 +668,7 @@ export abstract class BaseBankAuth<
       await this.debugPause('Browser initialized - ready to navigate to login page');
 
       // Navigate to login page
-      this.log(`🌐 Navigating to ${this.bankName} login page...`);
+      this.log(`Navigating to ${this.bankName} login page...`);
       await this.page.goto(this.getLoginUrl(), { 
         waitUntil: 'domcontentloaded',
         timeout: this.config.timeout 
@@ -686,10 +690,11 @@ export abstract class BaseBankAuth<
         return this.createFailureResult('Authentication failed');
       }
 
-    } catch (error: any) {
-      this.log(`💥 Authentication error: ${error.message || error}`);
-      await this.debugPause(`Error occurred: ${error.message} - inspect page state`);
-      return this.createFailureResult(error.message || 'Unknown error occurred');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`💥 Authentication error: ${message}`);
+      await this.debugPause(`Error occurred: ${message} - inspect page state`);
+      return this.createFailureResult(message || 'Unknown error occurred');
     }
   }
 
@@ -740,7 +745,7 @@ export abstract class BaseBankAuth<
   /**
    * Get credentials for logging purposes (should be implemented safely by subclasses)
    */
-  abstract getCredentials(): Record<string, any>;
+  abstract getCredentials(): Record<string, unknown>;
 
   /**
    * Get log file path
@@ -773,7 +778,7 @@ export abstract class BaseBankAuth<
       this.log(`📤 Logs exported to: ${targetPath}`);
       return true;
     } catch (error) {
-      this.log(`❌ Failed to export logs: ${error}`);
+      this.log(`Failed to export logs: ${error}`);
       return false;
     }
   }
@@ -806,7 +811,7 @@ export abstract class BaseBankAuth<
       this.log(`📄 Debug session log saved to: ${this.logFile}`);
       
     } catch (error) {
-      this.log(`⚠️  Error during cleanup: ${error}`);
+      this.log(` Error during cleanup: ${error}`);
     }
   }
 } 
