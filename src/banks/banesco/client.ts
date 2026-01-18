@@ -4,6 +4,25 @@
  * This is the recommended way to interact with Banesco online banking.
  * Uses Playwright internally for login (required due to JS/iframe/security questions),
  * then switches to HTTP for all data fetching (faster, more stable).
+ * 
+ * ## Login Flow
+ * 
+ * 1. Playwright opens Banesco login page (handles iframes)
+ * 2. Enters username → detects security questions OR password page
+ * 3. If security questions: matches keywords from config → fills answers
+ * 4. Enters password → submits → verifies login success
+ * 5. Extracts session cookies → transfers to HTTP client
+ * 6. Closes Playwright → uses HTTP for all subsequent requests
+ * 
+ * ## Security Questions Format
+ * 
+ * Comma-separated keyword:answer pairs (case-insensitive matching):
+ * ```
+ * BANESCO_SECURITY_QUESTIONS=mascota:Firulais,madre:Maria,anime:Naruto
+ * ```
+ * 
+ * Keywords are matched against question text. Minimum 2 answers required.
+ * If login fails with "no_keyword_match", check logs for actual question text.
  *
  * @example
  * ```typescript
@@ -20,6 +39,9 @@
  * const movements = await client.getAccountMovements(accounts[0].accountNumber);
  * await client.close();
  * ```
+ * 
+ * @see {@link BanescoAuth} - Lower-level Playwright authentication
+ * @see {@link BanescoHttpClient} - HTTP client for post-login operations
  */
 
 import { BanescoAuth } from './auth/banesco-auth.js';

@@ -2,6 +2,31 @@
  * Convex Mutations for Bank Transaction Ingestion
  * 
  * Provides idempotent transaction insertion with generic event emission.
+ * 
+ * ## Idempotency
+ * 
+ * Transactions are deduplicated using a deterministic `txnKey`:
+ * - Key formula: `sha256(bankCode + date + amount + type + reference).slice(0, 32)`
+ * - Same transaction always produces the same key
+ * - Duplicate ingestion attempts are skipped (not an error)
+ * 
+ * ## Ingestion Flow
+ * 
+ * 1. Check if `txnKey` exists → skip if duplicate (backfill missing fields)
+ * 2. Lookup bank by `bankCode` → create if missing
+ * 3. Insert transaction record
+ * 4. Emit `transaction.created` event for downstream consumers
+ * 
+ * ## Event System
+ * 
+ * Every new transaction creates an event with:
+ * - `type`: "transaction.created"
+ * - `acknowledged`: false (set to true after processing)
+ * 
+ * Use `getNewTransactionEvents()` to poll for unprocessed transactions.
+ * 
+ * @see {@link ingestTransactions} - Internal mutation for batch ingestion
+ * @see {@link ingestFromLocal} - Public mutation for local sync scripts
  */
 
 import { v } from "convex/values";
@@ -73,7 +98,25 @@ async function getOrCreateBank(
 }
 
 /**
- * Internal mutation: Idempotently insert new transactions
+ * Internal mutation: Idempotently insert new transactions.
+ * 
+ * For each transaction in the batch:
+ * - Checks for existing record by `txnKey` index
+ * - If exists: backfills missing `reference` or `bankCode` fields, skips insert
+ * - If new: creates transaction, creates `transaction.created` event
+ * 
+ * @param accountId - Optional account ID to associate with all transactions
+ * @param transactions - Array of transaction objects with `txnKey`, `bank`, `date`, `amount`, `type`
+ * @returns Counts of inserted and skipped transactions
+ * 
+ * @example
+ * ```typescript
+ * await ctx.runMutation(internal.transactions.ingestTransactions, {
+ *   transactions: [
+ *     { bank: 'banesco', txnKey: 'abc123...', date: '2025-01-15', amount: 100, type: 'debit', description: 'Transfer' }
+ *   ]
+ * });
+ * ```
  */
 export const ingestTransactions = internalMutation({
   args: {
@@ -325,7 +368,20 @@ export const acknowledgeAllEvents = mutation({
 });
 
 /**
- * Public mutation: Ingest transactions from local script
+ * Public mutation: Ingest transactions from local sync scripts.
+ * 
+ * Same behavior as `ingestTransactions` but exposed as a public mutation
+ * for use with `ConvexHttpClient` from local Node.js scripts.
+ * 
+ * Call from local scripts via:
+ * ```typescript
+ * import { ConvexHttpClient } from 'convex/browser';
+ * const client = new ConvexHttpClient(process.env.CONVEX_URL);
+ * await client.mutation(api.transactions.ingestFromLocal, { transactions: [...] });
+ * ```
+ * 
+ * @param transactions - Array of transaction objects (same schema as ingestTransactions)
+ * @returns Counts of inserted and skipped transactions
  */
 export const ingestFromLocal = mutation({
   args: {

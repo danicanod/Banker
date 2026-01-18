@@ -101,6 +101,111 @@ export const updateMovimientosState = internalMutation({
   },
 });
 
+// ============================================================================
+// Sync Lock (overlap prevention)
+// ============================================================================
+
+/**
+ * Lock expiry time in milliseconds.
+ * If a sync run takes longer than this, it's considered stale and can be overridden.
+ */
+const SYNC_LOCK_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Try to acquire a sync lock for Movimientos sync.
+ * 
+ * Uses a best-effort locking pattern:
+ * - If no lock exists or lock is stale, acquire it
+ * - If another run is active (not stale), return false
+ * 
+ * @returns Object with `acquired` boolean and `runId` if acquired
+ */
+export const tryAcquireMovimientosLock = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const runId = `${now}-${Math.random().toString(36).slice(2, 8)}`;
+    
+    const existing = await ctx.db
+      .query("integration_state")
+      .withIndex("by_name", (q) => q.eq("name", "notion_movimientos"))
+      .first();
+    
+    // Check if there's an active lock
+    if (existing?.lastError?.startsWith("RUNNING:")) {
+      const parts = existing.lastError.split(":");
+      const lockStarted = parseInt(parts[2] || "0", 10);
+      
+      // If lock is not stale, refuse to acquire
+      if (now - lockStarted < SYNC_LOCK_EXPIRY_MS) {
+        return { acquired: false, runId: null, reason: "another_run_active" };
+      }
+      // Lock is stale, we can override it
+    }
+    
+    // Acquire the lock
+    const lockValue = `RUNNING:${runId}:${now}`;
+    
+    if (!existing) {
+      await ctx.db.insert("integration_state", {
+        name: "notion_movimientos",
+        lastError: lockValue,
+        lastRunMs: now,
+      });
+    } else {
+      await ctx.db.patch(existing._id, {
+        lastError: lockValue,
+        lastRunMs: now,
+      });
+    }
+    
+    return { acquired: true, runId };
+  },
+});
+
+/**
+ * Release the Movimientos sync lock after a successful or failed run.
+ * 
+ * @param runId - The runId returned from tryAcquireMovimientosLock
+ * @param success - Whether the run was successful
+ * @param errorMessage - Error message if failed
+ */
+export const releaseMovimientosLock = internalMutation({
+  args: {
+    runId: v.string(),
+    success: v.boolean(),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, { runId, success, errorMessage }) => {
+    const now = Date.now();
+    
+    const existing = await ctx.db
+      .query("integration_state")
+      .withIndex("by_name", (q) => q.eq("name", "notion_movimientos"))
+      .first();
+    
+    if (!existing) {
+      return; // Nothing to release
+    }
+    
+    // Only release if we own the lock
+    if (existing.lastError?.includes(runId)) {
+      const newError = success 
+        ? "" 
+        : `FAILED:${runId}:${now}:${errorMessage || "unknown"}`;
+      
+      await ctx.db.patch(existing._id, {
+        lastError: newError,
+        lastRunMs: now,
+      });
+    }
+  },
+});
+
+// ============================================================================
+// Transaction Queries
+// ============================================================================
+
 /**
  * Get transactions that need to be pushed to Notion Movimientos
  * 

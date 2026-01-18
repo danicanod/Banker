@@ -4,6 +4,34 @@
  * This abstract class provides common functionality for all bank authentication
  * implementations, including browser management, logging, error handling, and
  * common configuration patterns.
+ * 
+ * ## Usage
+ * 
+ * Extend this class and implement the abstract methods:
+ * ```typescript
+ * class MyBankAuth extends BaseBankAuth<MyCredentials, MyConfig, MyLoginResult> {
+ *   protected getUserIdentifier(): string { return this.credentials.username.slice(0, 3); }
+ *   protected getLoginUrl(): string { return 'https://mybank.com/login'; }
+ *   protected async performBankSpecificLogin(): Promise<boolean> { ... }
+ *   protected async verifyLoginSuccess(): Promise<boolean> { ... }
+ *   getCredentials(): Record<string, unknown> { return { username: this.credentials.username }; }
+ * }
+ * ```
+ * 
+ * ## Features
+ * 
+ * - **Browser lifecycle**: Automatic Playwright browser init/cleanup
+ * - **Stealth mode**: Anti-bot detection measures (navigator overrides, plugin spoofing)
+ * - **Performance**: Configurable resource blocking (CSS, images, fonts, tracking)
+ * - **Logging**: File-based debug logs with timestamps
+ * - **Debug mode**: Playwright Inspector integration for step-through debugging
+ * 
+ * ## Performance Presets
+ * 
+ * Configure via `performancePreset` option: 'MAXIMUM', 'AGGRESSIVE', 'BALANCED', 'CONSERVATIVE', 'NONE'
+ * 
+ * @see {@link PerformanceConfig} for blocking options
+ * @see {@link PERFORMANCE_PRESETS} for preset definitions
  */
 
 import { Browser, Page, Frame, chromium, BrowserContext } from 'playwright';

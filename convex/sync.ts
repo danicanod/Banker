@@ -53,10 +53,37 @@ function parseSecurityQuestions(raw: string): Map<string, string> {
 }
 
 /**
- * Generate deterministic transaction ID
+ * Generate deterministic transaction ID.
+ * 
+ * ## Key Contract
+ * 
+ * The key is a SHA-256 hash of: `bank|date|amount|type|reference_or_description`
+ * 
+ * - When `reference` is present and non-empty, it's used as the unique identifier
+ * - When `reference` is absent, `description` is used as fallback
+ * - Amount is always absolute value (positive)
+ * 
+ * This contract MUST be consistent across:
+ * - Local sync scripts (`scripts/*.ts`)
+ * - Convex Browserbase sync (`convex/sync.ts`)
+ * 
+ * @param date - Transaction date
+ * @param amount - Transaction amount (will be made absolute)
+ * @param description - Transaction description (fallback identifier)
+ * @param type - "debit" or "credit"
+ * @param reference - Bank reference number (preferred identifier when present)
+ * @returns Deterministic key in format `banesco-{16_char_hash}`
  */
-function generateTxnId(date: string, amount: number, description: string, type: string): string {
-  const key = [date, String(Math.abs(amount)), description.trim(), type].join("|");
+function generateTxnId(
+  date: string,
+  amount: number,
+  description: string,
+  type: string,
+  reference?: string
+): string {
+  // Prefer reference when available (more stable identifier)
+  const identifier = reference?.trim() || description.trim();
+  const key = ["banesco", date, String(Math.abs(amount)), type, identifier].join("|");
   return `banesco-${createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
 }
 
@@ -222,7 +249,8 @@ async function extractTransactionsFromPage(page: Page): Promise<BanescoTransacti
 
       if (amount === 0) continue;
 
-      const id = generateTxnId(dateMatch, amount, description || "", type);
+      // Note: Reference not available from HTML scraping, using description as fallback
+      const id = generateTxnId(dateMatch, amount, description || "", type, undefined);
 
       transactions.push({
         id,

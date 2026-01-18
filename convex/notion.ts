@@ -119,6 +119,107 @@ function getDatabaseIds(): { banks: string; transactions: string } {
   return { banks, transactions };
 }
 
+// ============================================================================
+// Notion API Retry Logic
+// ============================================================================
+
+/**
+ * Retry configuration for Notion API calls.
+ */
+const NOTION_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+};
+
+/**
+ * Check if an error is retryable (rate limit or transient server error).
+ */
+function isRetryableNotionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  
+  const message = error.message.toLowerCase();
+  
+  // Rate limit (429)
+  if (message.includes("rate limit") || message.includes("429")) {
+    return true;
+  }
+  
+  // Transient server errors (5xx)
+  if (message.includes("500") || message.includes("502") || 
+      message.includes("503") || message.includes("504") ||
+      message.includes("internal server error") ||
+      message.includes("bad gateway") ||
+      message.includes("service unavailable")) {
+    return true;
+  }
+  
+  // Network errors
+  if (message.includes("econnreset") || message.includes("etimedout") ||
+      message.includes("enotfound") || message.includes("network")) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Calculate delay with exponential backoff and jitter.
+ */
+function calculateRetryDelay(attempt: number): number {
+  const { baseDelayMs, maxDelayMs } = NOTION_RETRY_CONFIG;
+  const exponentialDelay = baseDelayMs * Math.pow(2, attempt);
+  const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
+  return Math.min(exponentialDelay + jitter, maxDelayMs);
+}
+
+/**
+ * Execute a Notion API call with retry logic.
+ * 
+ * Retries on:
+ * - 429 Rate Limit errors
+ * - 5xx Server errors
+ * - Network errors
+ * 
+ * Does NOT retry on:
+ * - 4xx Client errors (except 429)
+ * - Validation errors
+ * 
+ * @param operation - Description for logging
+ * @param fn - Async function to execute
+ * @returns Result of the function
+ * @throws Last error if all retries fail
+ */
+async function withNotionRetry<T>(
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const { maxRetries } = NOTION_RETRY_CONFIG;
+  let lastError: Error | undefined;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      if (attempt < maxRetries && isRetryableNotionError(error)) {
+        const delay = calculateRetryDelay(attempt);
+        console.log(
+          `[Notion Retry] ${operation} failed (attempt ${attempt + 1}/${maxRetries + 1}), ` +
+          `retrying in ${Math.round(delay)}ms: ${lastError.message}`
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // Non-retryable error or max retries reached
+        break;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 /**
  * Convert Notion ISO date to ms timestamp
  */
@@ -609,6 +710,21 @@ export const syncNotionAll = internalAction({
       errors: [],
     };
     
+    // Try to acquire sync lock to prevent overlapping runs
+    const lockResult = await ctx.runMutation(internal.notion_mutations.tryAcquireSyncLock, {
+      name: "notion",
+    }) as { acquired: boolean; runId: string | null; reason?: string };
+    
+    if (!lockResult.acquired) {
+      console.log(`[Notion Sync] Skipping: ${lockResult.reason || "another run is active"}`);
+      result.success = false;
+      result.errors.push("Sync skipped: another run is active");
+      return result;
+    }
+    
+    const runId = lockResult.runId!;
+    console.log(`[Notion Sync] Acquired lock: ${runId}`);
+    
     try {
       // Step 1: Pull from Notion (get edits)
       console.log("[Notion Sync] Step 1: Pulling from Notion...");
@@ -626,17 +742,16 @@ export const syncNotionAll = internalAction({
       result.transactionsUpdated = pushResult.transactionsUpdated;
       result.errors.push(...pushResult.errors);
       
-      // Update integration state
-      const now = Date.now();
-      await ctx.runMutation(internal.notion_mutations.updateIntegrationState, {
-        name: "notion",
-        lastRunMs: now,
-        lastError: result.errors.length > 0 ? result.errors.join("; ") : undefined,
-      });
-      
       result.success = result.errors.length === 0;
       
       console.log(`[Notion Sync] Complete. Success: ${result.success}, Errors: ${result.errors.length}`);
+      
+      // Release lock on success
+      await ctx.runMutation(internal.notion_mutations.releaseSyncLock, {
+        name: "notion",
+        runId,
+        success: true,
+      });
       
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -644,11 +759,12 @@ export const syncNotionAll = internalAction({
       result.errors.push(`Sync error: ${message}`);
       console.error(`[Notion Sync] Fatal error: ${message}`);
       
-      // Record the error
-      await ctx.runMutation(internal.notion_mutations.updateIntegrationState, {
+      // Release lock on failure
+      await ctx.runMutation(internal.notion_mutations.releaseSyncLock, {
         name: "notion",
-        lastRunMs: Date.now(),
-        lastError: message,
+        runId,
+        success: false,
+        errorMessage: message,
       });
     }
     

@@ -122,20 +122,212 @@ function getMovimientosDbId(): string {
   return dbId;
 }
 
+// ============================================================================
+// Notion API Retry Logic
+// ============================================================================
+
 /**
- * Bank Notion Page IDs mapping
- * These are the pages in the "Carteras" database that represent each bank
+ * Retry configuration for Notion API calls.
  */
-const BANK_NOTION_PAGE_IDS: Record<string, string> = {
-  banesco: "279b0ba9-7320-8008-9a98-da7e011c7913", // Banesco in Carteras
-  bnc: "b45a888a-2d8e-4f73-8d7b-728f4a63bfb6", // BNC in Carteras
+const NOTION_RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
 };
 
 /**
- * Get bank's Notion page ID for Origen/Destino relations
+ * Check if an error is retryable (rate limit or transient server error).
+ */
+function isRetryableNotionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  
+  const message = error.message.toLowerCase();
+  
+  // Rate limit (429)
+  if (message.includes("rate limit") || message.includes("429")) {
+    return true;
+  }
+  
+  // Transient server errors (5xx)
+  if (message.includes("500") || message.includes("502") || 
+      message.includes("503") || message.includes("504") ||
+      message.includes("internal server error") ||
+      message.includes("bad gateway") ||
+      message.includes("service unavailable")) {
+    return true;
+  }
+  
+  // Network errors
+  if (message.includes("econnreset") || message.includes("etimedout") ||
+      message.includes("enotfound") || message.includes("network")) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Calculate delay with exponential backoff and jitter.
+ */
+function calculateRetryDelay(attempt: number): number {
+  const { baseDelayMs, maxDelayMs } = NOTION_RETRY_CONFIG;
+  const exponentialDelay = baseDelayMs * Math.pow(2, attempt);
+  const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
+  return Math.min(exponentialDelay + jitter, maxDelayMs);
+}
+
+/**
+ * Execute a Notion API call with retry logic.
+ * 
+ * Retries on:
+ * - 429 Rate Limit errors
+ * - 5xx Server errors
+ * - Network errors
+ * 
+ * Does NOT retry on:
+ * - 4xx Client errors (except 429)
+ * - Validation errors
+ * 
+ * @param operation - Description for logging
+ * @param fn - Async function to execute
+ * @returns Result of the function
+ * @throws Last error if all retries fail
+ */
+async function withNotionRetry<T>(
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const { maxRetries } = NOTION_RETRY_CONFIG;
+  let lastError: Error | undefined;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      if (attempt < maxRetries && isRetryableNotionError(error)) {
+        const delay = calculateRetryDelay(attempt);
+        console.log(
+          `[Notion Retry] ${operation} failed (attempt ${attempt + 1}/${maxRetries + 1}), ` +
+          `retrying in ${Math.round(delay)}ms: ${lastError.message}`
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // Non-retryable error or max retries reached
+        break;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
+// ============================================================================
+// Schema Validation
+// ============================================================================
+
+/**
+ * Required properties for Movimientos sync to work correctly.
+ * These MUST exist in the Notion database with the exact names.
+ */
+const REQUIRED_MOVIMIENTOS_PROPS = [
+  NOTION_MOV_PROPS.NOMBRE,      // Title - transaction description
+  NOTION_MOV_PROPS.FECHA,       // Date - transaction date
+  NOTION_MOV_PROPS.DEBITO,      // Number - debit amount
+  NOTION_MOV_PROPS.CREDITO,     // Number - credit amount
+  NOTION_MOV_PROPS.REFERENCIA,  // Text - bank reference (primary match key)
+] as const;
+
+/**
+ * Validate that the Notion database has all required properties.
+ * 
+ * Fetches database schema from Notion API and checks for required properties.
+ * Throws an error if any required property is missing.
+ * 
+ * @param notion - Notion client
+ * @param dbId - Database ID to validate
+ * @throws Error if required properties are missing
+ */
+async function validateMovimientosSchema(
+  notion: Client,
+  dbId: string
+): Promise<void> {
+  try {
+    const database = await withNotionRetry(
+      "retrieve database schema",
+      () => notion.databases.retrieve({ database_id: dbId })
+    );
+    
+    if (!("properties" in database)) {
+      throw new Error("Could not retrieve database properties");
+    }
+    
+    const existingProps = new Set(Object.keys(database.properties));
+    const missingProps: string[] = [];
+    
+    for (const requiredProp of REQUIRED_MOVIMIENTOS_PROPS) {
+      if (!existingProps.has(requiredProp)) {
+        missingProps.push(requiredProp);
+      }
+    }
+    
+    if (missingProps.length > 0) {
+      throw new Error(
+        `Notion database is missing required properties: ${missingProps.join(", ")}. ` +
+        `Please add these properties to your Movimientos database.`
+      );
+    }
+    
+    console.log(`[Movimientos] Schema validation passed (${existingProps.size} properties found)`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Schema validation failed: ${message}`);
+  }
+}
+
+// ============================================================================
+// Bank Notion Page IDs (from environment)
+// ============================================================================
+
+/**
+ * Get bank's Notion page ID for Origen/Destino relations.
+ * 
+ * Reads from environment variables:
+ * - NOTION_CARTERAS_BANESCO_PAGE_ID
+ * - NOTION_CARTERAS_BNC_PAGE_ID
+ * 
+ * If not set, logs a warning and returns undefined (relation will be skipped).
+ * 
+ * @param bankCode - Bank code (e.g., "banesco", "bnc")
+ * @returns Notion page ID or undefined if not configured
  */
 function getBankNotionPageId(bankCode: string): string | undefined {
-  return BANK_NOTION_PAGE_IDS[bankCode.toLowerCase()];
+  const normalizedCode = bankCode.toLowerCase();
+  
+  let pageId: string | undefined;
+  
+  switch (normalizedCode) {
+    case "banesco":
+      pageId = process.env.NOTION_CARTERAS_BANESCO_PAGE_ID;
+      break;
+    case "bnc":
+      pageId = process.env.NOTION_CARTERAS_BNC_PAGE_ID;
+      break;
+    default:
+      // Unknown bank - no page ID
+      return undefined;
+  }
+  
+  if (!pageId) {
+    console.log(
+      `[Movimientos] Warning: NOTION_CARTERAS_${normalizedCode.toUpperCase()}_PAGE_ID not set. ` +
+      `Origen/Destino relations will be skipped for ${bankCode} transactions.`
+    );
+    return undefined;
+  }
+  
+  return pageId;
 }
 
 /**
@@ -147,15 +339,18 @@ async function findNotionPageByReferencia(
   referencia: string
 ): Promise<NotionPage | null> {
   try {
-    const response = await notion.databases.query({
-      database_id: dbId,
-      filter: {
-        property: NOTION_MOV_PROPS.REFERENCIA,
-        rich_text: {
-          equals: referencia,
+    const response = await withNotionRetry(
+      `query by referencia ${referencia}`,
+      () => notion.databases.query({
+        database_id: dbId,
+        filter: {
+          property: NOTION_MOV_PROPS.REFERENCIA,
+          rich_text: {
+            equals: referencia,
+          },
         },
-      },
-    });
+      })
+    );
 
     if (response.results.length > 0 && "properties" in response.results[0]) {
       return response.results[0] as NotionPage;
@@ -181,21 +376,24 @@ async function findNotionPageByDateAmountType(
     // Build filter for date AND (Débito OR Crédito matching amount)
     const amountProp = type === "debit" ? NOTION_MOV_PROPS.DEBITO : NOTION_MOV_PROPS.CREDITO;
     
-    const response = await notion.databases.query({
-      database_id: dbId,
-      filter: {
-        and: [
-          {
-            property: NOTION_MOV_PROPS.FECHA,
-            date: { equals: date },
-          },
-          {
-            property: amountProp,
-            number: { equals: amount },
-          },
-        ],
-      },
-    });
+    const response = await withNotionRetry(
+      `query by date/amount ${date}/${amount}`,
+      () => notion.databases.query({
+        database_id: dbId,
+        filter: {
+          and: [
+            {
+              property: NOTION_MOV_PROPS.FECHA,
+              date: { equals: date },
+            },
+            {
+              property: amountProp,
+              number: { equals: amount },
+            },
+          ],
+        },
+      })
+    );
 
     if (response.results.length > 0 && "properties" in response.results[0]) {
       // Return first match (there might be duplicates)
@@ -384,10 +582,13 @@ export const syncMovimientosPull = internalAction({
           }
         : undefined;
 
-      const response = await notion.databases.query({
-        database_id: dbId,
-        filter,
-      });
+      const response = await withNotionRetry(
+        "query movimientos for pull",
+        () => notion.databases.query({
+          database_id: dbId,
+          filter,
+        })
+      );
 
       for (const page of response.results) {
         if (!("properties" in page)) continue;
@@ -549,10 +750,13 @@ export const syncMovimientosPush = internalAction({
 
           if (existingPageId) {
             // Update existing page
-            const response = await notion.pages.update({
-              page_id: existingPageId,
-              properties: props,
-            });
+            const response = await withNotionRetry(
+              `update page ${existingPageId}`,
+              () => notion.pages.update({
+                page_id: existingPageId,
+                properties: props,
+              })
+            );
 
             await ctx.runMutation(internal.notion_movimientos_mutations.patchTransactionMovimientosData, {
               txnId: txn._id,
@@ -565,10 +769,13 @@ export const syncMovimientosPush = internalAction({
             console.log(`[Movimientos Push] Updated: ${txn.reference || txn.txnKey.slice(0, 20)}...`);
           } else if (txn.reference) {
             // Only create new page if we have a reference
-            const response = await notion.pages.create({
-              parent: { database_id: dbId },
-              properties: props,
-            });
+            const response = await withNotionRetry(
+              `create page for ${txn.reference}`,
+              () => notion.pages.create({
+                parent: { database_id: dbId },
+                properties: props,
+              })
+            );
 
             await ctx.runMutation(internal.notion_movimientos_mutations.patchTransactionMovimientosData, {
               txnId: txn._id,
@@ -623,7 +830,29 @@ export const syncMovimientosAll = internalAction({
       errors: [],
     };
 
+    // Try to acquire sync lock to prevent overlapping runs
+    const lockResult = await ctx.runMutation(
+      internal.notion_movimientos_mutations.tryAcquireMovimientosLock,
+      {}
+    ) as { acquired: boolean; runId: string | null; reason?: string };
+
+    if (!lockResult.acquired) {
+      console.log(`[Movimientos Sync] Skipping: ${lockResult.reason || "another run is active"}`);
+      result.success = false;
+      result.errors.push("Sync skipped: another run is active");
+      return result;
+    }
+
+    const runId = lockResult.runId!;
+    console.log(`[Movimientos Sync] Acquired lock: ${runId}`);
+
     try {
+      // Step 0: Validate Notion schema
+      console.log("[Movimientos Sync] Step 0: Validating Notion schema...");
+      const notion = getNotionClient();
+      const dbId = getMovimientosDbId();
+      await validateMovimientosSchema(notion, dbId);
+
       // Step 1: Pull from Notion (get edits)
       console.log("[Movimientos Sync] Step 1: Pulling from Notion...");
       const pullResult = await ctx.runAction(internal.notion_movimientos.syncMovimientosPull, {
@@ -640,14 +869,13 @@ export const syncMovimientosAll = internalAction({
       result.skipped = pushResult.skipped;
       result.errors.push(...pushResult.errors);
 
-      // Update integration state
-      const now = Date.now();
-      await ctx.runMutation(internal.notion_movimientos_mutations.updateMovimientosState, {
-        lastRunMs: now,
-        lastError: result.errors.length > 0 ? result.errors.join("; ") : undefined,
-      });
-
       result.success = result.errors.length === 0;
+
+      // Release lock on success
+      await ctx.runMutation(internal.notion_movimientos_mutations.releaseMovimientosLock, {
+        runId,
+        success: true,
+      });
 
       console.log(`[Movimientos Sync] Complete. Success: ${result.success}, Errors: ${result.errors.length}`);
 
@@ -657,10 +885,11 @@ export const syncMovimientosAll = internalAction({
       result.errors.push(`Sync error: ${message}`);
       console.error(`[Movimientos Sync] Fatal error: ${message}`);
 
-      // Record the error
-      await ctx.runMutation(internal.notion_movimientos_mutations.updateMovimientosState, {
-        lastRunMs: Date.now(),
-        lastError: message,
+      // Release lock on failure
+      await ctx.runMutation(internal.notion_movimientos_mutations.releaseMovimientosLock, {
+        runId,
+        success: false,
+        errorMessage: message,
       });
     }
 

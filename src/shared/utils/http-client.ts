@@ -6,6 +6,25 @@
  * - Form POST helpers
  * - Token extraction (CSRF, ASP.NET hidden fields)
  * - Standardized headers matching Playwright defaults
+ * 
+ * ## CookieFetch
+ * 
+ * The main class for making HTTP requests with automatic session management:
+ * ```typescript
+ * const http = createCookieFetch({ debug: true });
+ * const html = await http.getHtml('https://example.com/login');
+ * await http.postForm('https://example.com/auth', { user: 'foo', pass: 'bar' });
+ * ```
+ * 
+ * ## Token Extraction
+ * 
+ * Helper functions for common authentication patterns:
+ * - `extractRequestVerificationToken()` - ASP.NET MVC CSRF tokens
+ * - `extractAspNetFields()` - WebForms hidden fields (__VIEWSTATE, etc.)
+ * - `extractTableData()` - Parse HTML tables for transaction data
+ * 
+ * @see {@link CookieFetch} - Main HTTP client class
+ * @see {@link createCookieFetch} - Factory function
  */
 
 import { CookieJar, Cookie } from 'tough-cookie';
@@ -222,7 +241,22 @@ export class CookieFetch {
 // ============================================================================
 
 /**
- * Extract __RequestVerificationToken from HTML (for ASP.NET MVC CSRF protection)
+ * Extract __RequestVerificationToken from HTML (for ASP.NET MVC CSRF protection).
+ * 
+ * Tries multiple strategies:
+ * 1. Input field: `<input name="__RequestVerificationToken" value="..." />`
+ * 2. Meta tag: `<meta name="__RequestVerificationToken" content="..." />`
+ * 3. Regex fallback for malformed HTML
+ * 
+ * @param html - Raw HTML string from the page
+ * @returns The token value, or null if not found
+ * 
+ * @example
+ * ```typescript
+ * const html = await http.getHtml('https://bank.com/login');
+ * const token = extractRequestVerificationToken(html);
+ * await http.postForm('/auth', { __RequestVerificationToken: token, ... });
+ * ```
  */
 export function extractRequestVerificationToken(html: string): string | null {
   const $ = cheerio.load(html);

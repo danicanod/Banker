@@ -97,3 +97,11 @@ banesco/
 │   └── hybrid-usage.ts        # Step-by-step hybrid example
 └── README.md
 ```
+
+---
+
+**Navigation:**
+- [Back to banks overview](../README.md)
+- [BNC client](../bnc/README.md)
+- [Shared utilities](../../shared/README.md)
+- [Root README](../../../README.md)

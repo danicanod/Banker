@@ -2,7 +2,26 @@
  * BncClient - Unified HTTP Client
  *
  * This is the recommended way to interact with BNC online banking.
- * Uses pure HTTP requests (no browser needed).
+ * Uses pure HTTP requests (no browser needed). ~8-10x faster than browser-based scrapers.
+ * 
+ * ## Login Flow
+ * 
+ * 1. (Optional) Logout to clear any existing session
+ * 2. GET `/` → Extract `__RequestVerificationToken`
+ * 3. POST `/Auth/PreLogin_Try` → Card number + User ID
+ * 4. POST `/Auth/Login_Try` → Password
+ * 5. GET `/Home/BNCNETHB/Welcome` → Verify success
+ * 
+ * ## Limitations
+ * 
+ * - **Last 25 transactions only** - BNC API does not expose full history
+ * - **3 accounts**: VES_1109, USD_0816, USD_0801
+ * - Session can expire; use `logoutFirst: true` to avoid "session already active" errors
+ * 
+ * ## Transaction IDs
+ * 
+ * Each transaction gets a deterministic ID: `bnc-${sha256(date+amount+ref+desc+type+account).slice(0,16)}`
+ * This enables idempotent ingestion to Convex.
  *
  * @example
  * ```typescript
@@ -18,6 +37,9 @@
  * const transactions = await client.getTransactions();
  * await client.close();
  * ```
+ * 
+ * @see {@link BncHttpClient} - Lower-level HTTP client
+ * @see {@link quickHttpScrape} - One-liner for login + fetch
  */
 
 import { BncHttpClient } from './http/bnc-http-client.js';
