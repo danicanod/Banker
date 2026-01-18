@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as cleanup_movimientos from "../cleanup_movimientos.js";
 import type * as crons from "../crons.js";
 import type * as notion from "../notion.js";
 import type * as notion_movimientos from "../notion_movimientos.js";
@@ -23,6 +24,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  cleanup_movimientos: typeof cleanup_movimientos;
   crons: typeof crons;
   notion: typeof notion;
   notion_movimientos: typeof notion_movimientos;

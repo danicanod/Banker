@@ -543,6 +543,7 @@ export class BanescoHttpClient {
   /**
    * Get movement history for a specific account
    * Uses dashboard postback to navigate to movements, then submits the date form
+   * Handles pagination to fetch ALL transactions across multiple pages
    */
   async getAccountMovements(accountNumber: string): Promise<BanescoMovementsResult> {
     if (!this.isAuthenticated) {
@@ -580,9 +581,9 @@ export class BanescoHttpClient {
 
       // Step 2: Submit the movements form (discover field names/options from HTML)
       this.log(`   Step 2: Submitting movements filter form...`);
-      const transactionsHtml = await this.submitMovementsDateForm(movementsPageHtml, accountNumber);
+      let currentPageHtml = await this.submitMovementsDateForm(movementsPageHtml, accountNumber);
       
-      if (!transactionsHtml) {
+      if (!currentPageHtml) {
         return {
           success: false,
           message: 'Failed to submit date filter form',
@@ -592,35 +593,65 @@ export class BanescoHttpClient {
         };
       }
       
-      this.log(`   Got transactions page (${transactionsHtml.length} chars)`);
+      this.log(`   Got transactions page (${currentPageHtml.length} chars)`);
       if (this.config.debug) {
         const fs = await import('fs');
-        fs.writeFileSync('debug-banesco-transactions.html', transactionsHtml);
+        fs.writeFileSync('debug-banesco-transactions.html', currentPageHtml);
       }
       
-      // Step 3: Parse transactions from result
-      this.log(`   Step 3: Parsing transactions...`);
-      const transactions = this.parseMovementsFromHtml(transactionsHtml, accountNumber);
+      // Step 3: Parse transactions from first page and handle pagination
+      this.log(`   Step 3: Parsing transactions (with pagination)...`);
+      const allTransactions: BanescoHttpTransaction[] = [];
+      let pageNumber = 1;
+      const maxPages = 50; // Safety limit to prevent infinite loops
       
-      if (transactions.length > 0) {
-        this.log(`Found ${transactions.length} transactions`);
-        return {
-          success: true,
-          message: `Found ${transactions.length} movements`,
-          accountNumber,
-          transactions
-        };
+      while (pageNumber <= maxPages) {
+        // Parse transactions from current page
+        const pageTransactions = this.parseMovementsFromHtml(currentPageHtml, accountNumber);
+        
+        if (pageTransactions.length > 0) {
+          this.log(`   Page ${pageNumber}: Found ${pageTransactions.length} transactions`);
+          allTransactions.push(...pageTransactions);
+        } else if (pageNumber === 1) {
+          // No transactions on first page - check for "no movements" message
+          const pageText = currentPageHtml.toLowerCase();
+          if (pageText.includes('no posee movimientos') || pageText.includes('no hay movimientos')) {
+            this.log(`   No movements in selected period`);
+            return {
+              success: true,
+              message: 'No movements found in the selected period',
+              accountNumber,
+              transactions: []
+            };
+          }
+        }
+        
+        // Check for pagination - look for "Siguiente" (Next) button
+        const nextPageHtml = await this.fetchNextPage(currentPageHtml);
+        
+        if (!nextPageHtml) {
+          // No more pages
+          this.log(`   No more pages (reached end at page ${pageNumber})`);
+          break;
+        }
+        
+        // Move to next page
+        currentPageHtml = nextPageHtml;
+        pageNumber++;
+        
+        if (this.config.debug) {
+          const fs = await import('fs');
+          fs.writeFileSync(`debug-banesco-transactions-page${pageNumber}.html`, currentPageHtml);
+        }
       }
       
-      // Check for "no movements" message
-      const pageText = transactionsHtml.toLowerCase();
-      if (pageText.includes('no posee movimientos') || pageText.includes('no hay movimientos')) {
-        this.log(`   No movements in selected period`);
+      if (allTransactions.length > 0) {
+        this.log(`   Total: ${allTransactions.length} transactions across ${pageNumber} page(s)`);
         return {
           success: true,
-          message: 'No movements found in the selected period',
+          message: `Found ${allTransactions.length} movements across ${pageNumber} page(s)`,
           accountNumber,
-          transactions: []
+          transactions: allTransactions
         };
       }
       
@@ -642,6 +673,87 @@ export class BanescoHttpClient {
         transactions: [],
         error: message
       };
+    }
+  }
+
+  /**
+   * Fetch the next page of transactions by clicking the "Siguiente" button
+   * Returns null if there's no next page button
+   */
+  private async fetchNextPage(currentPageHtml: string): Promise<string | null> {
+    try {
+      const $ = cheerio.load(currentPageHtml);
+      
+      // Look for "Siguiente" (Next) button - various possible IDs/names
+      const $nextBtn = $('input[type="submit"], button').filter((_, el) => {
+        const id = ($(el).attr('id') || '').toLowerCase();
+        const name = ($(el).attr('name') || '').toLowerCase();
+        const value = (($(el).attr('value') || '') as string).toLowerCase();
+        const text = ($(el).text() || '').toLowerCase();
+        return (
+          id.includes('btnsig') ||
+          name.includes('btnsig') ||
+          value.includes('siguiente') ||
+          text.includes('siguiente') ||
+          id.includes('btnnext') ||
+          name.includes('btnnext')
+        );
+      }).first();
+      
+      if (!$nextBtn.length) {
+        // No next button found
+        return null;
+      }
+      
+      const btnName = ($nextBtn.attr('name') || '').trim();
+      const btnValue = (($nextBtn.attr('value') as string) || 'Siguiente').trim();
+      
+      if (!btnName) {
+        this.log(`   Found next button but couldn't get its name`);
+        return null;
+      }
+      
+      this.log(`   📄 Fetching next page (clicking ${btnName})...`);
+      
+      // Build form data for pagination postback
+      const formFields = parseAspNetFormFields(currentPageHtml);
+      const allHiddenFields = parseAllHiddenFields(currentPageHtml);
+      
+      const formData: Record<string, string> = {
+        ...allHiddenFields,
+        ...formFields,
+        __EVENTTARGET: '',
+        __EVENTARGUMENT: '',
+        [btnName]: btnValue,
+      };
+      
+      // Submit the pagination form
+      const response = await this.postForm(BANESCO_URLS.MOVIMIENTOS_CUENTA, formData);
+      
+      // Handle redirect if needed
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          const absoluteUrl = new URL(location, BANESCO_URLS.BASE).href;
+          this.log(`   ↪️ Following redirect to: ${absoluteUrl.split('/').pop()}`);
+          return await this.fetchPage(absoluteUrl);
+        }
+      }
+      
+      const nextHtml = await response.text();
+      
+      // Verify we got a valid page (not an error page)
+      if (this.isBanescoErrorPage(nextHtml)) {
+        this.log(`   Next page returned an error`);
+        return null;
+      }
+      
+      return nextHtml;
+      
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`   Error fetching next page: ${message}`);
+      return null;
     }
   }
 
@@ -743,7 +855,6 @@ export class BanescoHttpClient {
 
       const today = new Date();
       const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const firstOfSixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 6, 1);
       const formatDate = (d: Date) =>
         `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
 
@@ -764,26 +875,52 @@ export class BanescoHttpClient {
       const consultField = $consultBtn.length ? (($consultBtn.attr('name') || $consultBtn.attr('id') || '').trim()) : 'ctl00$cp$btnMostrar';
       const consultValue = (($consultBtn.attr('value') as string) || 'Consultar').trim();
 
-      // If there is a "TipoConsulta" radio group, prefer "periodo" when available.
-      // We don’t hardcode the exact field name; instead we set it only if present in hidden fields.
+      // Determine query mode: prefer "rdbRango" (date range) when date inputs exist,
+      // fall back to "rdbPeriodo" (period dropdown) otherwise. We don’t hardcode the exact field name; instead we set it only if present in hidden fields.
       const tipoConsultaKey = Object.keys(formData).find(k => k.toLowerCase().includes('tipoconsulta'));
+      const useDateRangeMode = fromField && toField;
+
       if (tipoConsultaKey) {
-        formData[tipoConsultaKey] = 'rdbPeriodo';
+        formData[tipoConsultaKey] = useDateRangeMode ? 'rdbRango' : 'rdbPeriodo';
       }
 
-      // Try multiple period/date combinations until we get transactions or a clear "no movements" message.
+      // When using date range mode, submit once with current-month range.
+      // When using period mode, try multiple period options until we get results.
+      if (useDateRangeMode) {
+        // Use current month range (matches browser behavior)
+        formData[fromField] = formatDate(firstOfMonth);
+        formData[toField] = formatDate(today);
+
+        // "Click" consult
+        if (consultField) formData[consultField] = consultValue;
+
+        this.log(`   📤 Posting movements form (rdbRango: ${formatDate(firstOfMonth)} - ${formatDate(today)})`);
+        const response = await this.postForm(BANESCO_URLS.MOVIMIENTOS_CUENTA, formData);
+
+        // Handle redirect if needed
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (location) {
+            const absoluteUrl = new URL(location, BANESCO_URLS.BASE).href;
+            this.log(`   ↪️ Following redirect to: ${absoluteUrl.split('/').pop()}`);
+            return await this.fetchPage(absoluteUrl);
+          }
+        }
+
+        return await response.text();
+      }
+
+      // Fallback: period-based query (try multiple period options)
       for (const period of orderedPeriods.slice(0, 5)) {
         const attemptForm: Record<string, string> = { ...formData };
 
         if (periodField) attemptForm[periodField] = period.value;
 
-        // Use a wider date range when date inputs exist (helps when period dropdown is ignored server-side)
-        if (fromField && toField) {
-          attemptForm[fromField] = formatDate(firstOfSixMonthsAgo);
-          attemptForm[toField] = formatDate(today);
-        } else if (fromField) {
+        // Set partial date fields if only one exists (rare fallback path)
+        if (fromField) {
           attemptForm[fromField] = formatDate(firstOfMonth);
-        } else if (toField) {
+        }
+        if (toField) {
           attemptForm[toField] = formatDate(today);
         }
 
@@ -948,14 +1085,14 @@ export class BanescoHttpClient {
       }
     }
     
-    // Find D/C indicator (single letter D or C)
+    // Find D/C indicator (D, C, +, or -)
     let transactionType: 'debit' | 'credit' = 'credit';
     for (const cell of cells) {
       const trimmed = cell.trim().toUpperCase();
-      if (trimmed === 'D') {
+      if (trimmed === 'D' || trimmed === '-') {
         transactionType = 'debit';
         break;
-      } else if (trimmed === 'C') {
+      } else if (trimmed === 'C' || trimmed === '+') {
         transactionType = 'credit';
         break;
       }
@@ -966,14 +1103,33 @@ export class BanescoHttpClient {
       transactionType = 'debit';
     }
     
-    // Find description (longest text that's not date/amount)
+    // Find reference (numeric string of 6+ digits, not a date or amount)
+    let reference: string | undefined = undefined;
+    for (const cell of cells) {
+      const trimmed = cell.trim().replace(/\s/g, '');
+      // Reference is typically a pure numeric string with 6+ digits
+      // Skip if it looks like a date (contains / or -)
+      if (/[/-]/.test(trimmed)) continue;
+      // Skip if it looks like an amount (contains comma or period as decimal)
+      if (/[.,]/.test(trimmed)) continue;
+      // Skip D/C indicators
+      if (/^[DC]$/i.test(trimmed)) continue;
+      // Match 6+ digit reference numbers
+      if (/^\d{6,}$/.test(trimmed)) {
+        reference = trimmed;
+        break;
+      }
+    }
+
+    // Find description (longest text that's not date/amount/reference)
     let description = '';
     for (const cell of cells) {
       const trimmed = cell.trim();
-      // Skip if it looks like date, amount, or D/C
+      // Skip if it looks like date, amount, D/C, or reference
       if (/^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(trimmed)) continue;
       if (/^[\d.,-]+$/.test(trimmed.replace(/\s/g, ''))) continue;
       if (/^[DC]$/i.test(trimmed)) continue;
+      if (/^\d{6,}$/.test(trimmed.replace(/\s/g, ''))) continue;
       
       if (trimmed.length > description.length && trimmed.length > 3) {
         description = trimmed;
@@ -991,7 +1147,7 @@ export class BanescoHttpClient {
       amount,
       type: transactionType,
       balance: undefined,
-      reference: undefined
+      reference
     };
   }
 
@@ -1325,10 +1481,14 @@ export class BanescoHttpClient {
       this.log(`   [Cookie] Sending: ${serializeCookies(this.cookies).substring(0, 50)}...`);
     }
     
-    // Add referer for POST requests
+    // Add Referer for all requests (Banesco validates this)
+    // Use the authenticated container page as referer for GET, or the request URL for POST
     if (options.method === 'POST') {
       (headers as Record<string, string>)['Origin'] = BANESCO_URLS.BASE;
       (headers as Record<string, string>)['Referer'] = url;
+    } else {
+      // For GET requests, pretend we're navigating from the authenticated dashboard
+      (headers as Record<string, string>)['Referer'] = BANESCO_URLS.LOGIN_PAGE;
     }
 
     const controller = new AbortController();

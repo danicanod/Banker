@@ -39,6 +39,7 @@ interface Transaction {
   amount: number;
   type: "debit" | "credit";
   balance: number;
+  reference?: string;
 }
 
 // ============================================================================
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
               amount: tx.amount,
               type: tx.type,
               balance: tx.balance || 0,
+              reference: tx.reference,
             });
           }
           log(`   ✅ ${movementsResult.transactions.length} transactions\n`);
@@ -172,6 +174,7 @@ async function main(): Promise<void> {
             amount: tx.amount,
             type: tx.type,
             balance: tx.balance || 0,
+            reference: tx.reference,
           });
         }
       }
@@ -200,6 +203,7 @@ async function main(): Promise<void> {
       description: tx.description,
       type: tx.type,
       balance: tx.balance,
+      reference: tx.reference,
       raw: tx,
     }));
 

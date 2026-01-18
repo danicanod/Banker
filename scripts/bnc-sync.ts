@@ -23,6 +23,7 @@ import {
   log,
   printPreview,
   ingestToConvex,
+  updateDescriptions,
 } from "./_sync-utils.js";
 
 import { createBncClient } from "../src/banks/bnc/client.js";
@@ -114,8 +115,17 @@ async function main(): Promise<void> {
 
     const result = await ingestToConvex(CONVEX_URL, normalizedTxs);
 
+    // Also update descriptions for existing transactions (in case memos changed)
+    log("🔄 Updating descriptions for existing transactions...");
+    const descUpdates = normalizedTxs.map((tx) => ({
+      txnKey: tx.txnKey,
+      description: tx.description,
+    }));
+    const updateResult = await updateDescriptions(CONVEX_URL, descUpdates);
+
     log(`\n✅ Done!`);
     log(`   New: ${result.insertedCount} | Skipped: ${result.skippedDuplicates}`);
+    log(`   Updated descriptions: ${updateResult.updatedCount}`);
   } finally {
     await client.close();
   }

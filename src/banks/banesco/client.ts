@@ -111,8 +111,28 @@ export class BanescoClient {
         throw new Error('No page available after login');
       }
 
+      // Navigate to movements page directly in Playwright to establish session state
+      // This ensures all cookies are set before we switch to HTTP client
+      this.log('Navigating to movements page in Playwright...');
+      try {
+        await page.goto('https://www.banesconline.com/Mantis/WebSite/ConsultaMovimientosCuenta/MovimientosCuenta.aspx', {
+          waitUntil: 'domcontentloaded',
+          timeout: 15000
+        });
+        await page.waitForTimeout(2000);
+        this.log('   Loaded movements page');
+      } catch (e) {
+        this.log(`   Movements page navigation failed: ${e instanceof Error ? e.message : e}`);
+      }
+
+      // Get ALL cookies from context (includes all domains/paths)
       const playwrightCookies = await page.context().cookies();
       this.log(`Extracted ${playwrightCookies.length} cookies from Playwright`);
+      
+      // Debug: log each cookie's domain and name
+      for (const cookie of playwrightCookies) {
+        this.log(`   Cookie: ${cookie.name} (domain: ${cookie.domain}, path: ${cookie.path})`);
+      }
 
       // Step 3: Create HTTP client with extracted cookies
       const httpCredentials: BanescoHttpCredentials = {

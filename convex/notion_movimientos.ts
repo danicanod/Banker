@@ -35,6 +35,7 @@ const NOTION_MOV_PROPS = {
   CREDITO: "Crédito",         // Number (credit amount)
   BALANCE: "Balance",         // Number (account balance)
   REFERENCIA: "Referencia",   // Text (bank reference number - primary match key)
+  MEMO: "Memo",               // Text (bank memo/description)
   
   // Status and categorization
   ESTADO: "Estado",           // Status (Por conciliar, Conciliando, Por cobrar, Conciliado)
@@ -126,8 +127,8 @@ function getMovimientosDbId(): string {
  * These are the pages in the "Carteras" database that represent each bank
  */
 const BANK_NOTION_PAGE_IDS: Record<string, string> = {
-  banesco: "16db0ba9-7320-80f6-affb-da8ede3cc530",
-  bnc: "2d8f7587-c8d0-4612-a1cc-092a60fb4b85", // BNC VES 1109
+  banesco: "279b0ba9-7320-8008-9a98-da7e011c7913", // Banesco in Carteras
+  bnc: "b45a888a-2d8e-4f73-8d7b-728f4a63bfb6", // BNC in Carteras
 };
 
 /**
@@ -264,6 +265,7 @@ function buildMovimientoProperties(txn: {
   type: "debit" | "credit";
   balance?: number;
   reference?: string;
+  memo?: string;
   // Optional metadata
   cuenta?: string;
   estado?: string;
@@ -297,6 +299,13 @@ function buildMovimientoProperties(txn: {
   if (txn.reference) {
     props[NOTION_MOV_PROPS.REFERENCIA] = {
       rich_text: [{ text: { content: txn.reference } }],
+    };
+  }
+
+  // Memo (bank description/memo)
+  if (txn.memo) {
+    props[NOTION_MOV_PROPS.MEMO] = {
+      rich_text: [{ text: { content: txn.memo.slice(0, 2000) } }],
     };
   }
 
@@ -506,6 +515,7 @@ export const syncMovimientosPush = internalAction({
             type: txn.type,
             balance: txn.balance,
             reference: txn.reference,
+            memo: txn.description, // Bank description goes to Memo field
             origenNotionPageId: txn.type === "debit" ? bankNotionPageId : undefined,
             destinoNotionPageId: txn.type === "credit" ? bankNotionPageId : undefined,
           });
@@ -684,5 +694,52 @@ export const triggerMovimientosSync = action({
     return await ctx.runAction(internal.notion_movimientos.syncMovimientosAll, {
       bankCode,
     });
+  },
+});
+
+type ForceResyncResult = {
+  success: boolean;
+  message: string;
+  updated: number;
+  bankCode?: string;
+};
+
+/**
+ * Public action: Force re-sync of transactions (updates Origen/Destino relations)
+ * 
+ * Clears notionLastSyncedAt so transactions are picked up by the next push cycle.
+ * Requires NOTION_SYNC_SECRET for authorization.
+ * 
+ * Usage:
+ *   npx convex run notion_movimientos:triggerForceResyncTransactions \
+ *     '{"secret":"YOUR_SECRET","bankCode":"banesco","limit":500}'
+ */
+export const triggerForceResyncTransactions = action({
+  args: {
+    secret: v.string(),
+    bankCode: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { secret, bankCode, limit }): Promise<ForceResyncResult> => {
+    const expectedSecret = process.env.NOTION_SYNC_SECRET;
+    if (!expectedSecret || secret !== expectedSecret) {
+      return {
+        success: false,
+        message: "Invalid or missing sync secret",
+        updated: 0,
+      };
+    }
+
+    console.log(`[Movimientos] Force re-sync triggered for ${bankCode || "all"}`);
+    const resyncResult: { message: string; updated: number; bankCode: string } =
+      await ctx.runMutation(
+        internal.notion_movimientos_mutations.forceResyncTransactionsInternal,
+        { bankCode, limit }
+      );
+
+    return {
+      success: true,
+      ...resyncResult,
+    };
   },
 });

@@ -248,6 +248,27 @@ export async function ingestToConvex(
   return result;
 }
 
+interface UpdateDescriptionResult {
+  updatedCount: number;
+  skippedCount: number;
+}
+
+/**
+ * Update descriptions for existing transactions.
+ * Useful when re-scraping to refresh memos/descriptions.
+ */
+export async function updateDescriptions(
+  convexUrl: string,
+  updates: Array<{ txnKey: string; description: string }>
+): Promise<UpdateDescriptionResult> {
+  const convex = new ConvexHttpClient(convexUrl);
+  const result = await convex.mutation(
+    api.notion_movimientos_mutations.batchUpdateDescriptions,
+    { updates }
+  );
+  return result;
+}
+
 // ============================================================================
 // Script Runner Wrapper
 // ============================================================================
