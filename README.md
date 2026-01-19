@@ -377,9 +377,197 @@ npm run example:bnc
 
 ## Security
 
-- Never commit `.env` files or credentials
-- Session data is stored locally in `.sessions/` (24h expiry)
-- See [SECURITY.md](SECURITY.md) for security best practices
+### Credential Management
+
+#### Never Commit Secrets
+
+- **Never** commit `.env` files or any file containing credentials
+- Use `.gitignore` to exclude sensitive files (already configured)
+- Store credentials in environment variables or secure secret managers
+
+#### Required Secrets
+
+| Secret | Used By | Storage Recommendation |
+|--------|---------|------------------------|
+| `BANESCO_USERNAME` | Library, Scripts | Environment variable |
+| `BANESCO_PASSWORD` | Library, Scripts | Environment variable |
+| `BANESCO_SECURITY_QUESTIONS` | Library, Scripts | Environment variable |
+| `BNC_ID` | Library, Scripts | Environment variable |
+| `BNC_CARD` | Library, Scripts | Environment variable |
+| `BNC_PASSWORD` | Library, Scripts | Environment variable |
+| `NOTION_API_TOKEN` | Convex Actions | Convex Dashboard secrets |
+| `BROWSERBASE_API_KEY` | Convex Actions | Convex Dashboard secrets |
+
+#### Convex Secrets
+
+For Convex deployments, set secrets via the Convex Dashboard or CLI:
+
+```bash
+npx convex env set NOTION_API_TOKEN "secret_xxx..."
+npx convex env set BROWSERBASE_API_KEY "bb_xxx..."
+```
+
+### Session Security
+
+#### Local Sessions
+
+- Session data is stored in `.sessions/` directory (gitignored)
+- Sessions expire after 24 hours by default
+- Clear sessions manually if compromised: `rm -rf .sessions/`
+
+#### Cookie Handling
+
+- Cookies are stored in memory during scraping operations
+- Cookies are not persisted to disk by default
+- When transferring cookies between Playwright and HTTP clients, ensure the transfer happens in-memory only
+
+### Logging Security
+
+#### What NOT to Log
+
+- Passwords or security question answers
+- Session tokens or cookies
+- Full API keys or tokens
+- Personal identification numbers (cedula)
+
+#### Safe Logging Practices
+
+```typescript
+// BAD: Logs full credentials
+console.log('Logging in with:', credentials);
+
+// GOOD: Logs masked identifier
+console.log('Logging in as:', credentials.username.slice(0, 3) + '***');
+```
+
+### Network Security
+
+#### Bank Connections
+
+- All bank connections use HTTPS
+- The library does not disable SSL verification
+- Do not use this library on untrusted networks
+
+#### Notion API
+
+- Always use the official Notion API token
+- Limit integration permissions to only required databases
+- Regularly rotate API tokens
+
+### Deployment Security
+
+#### Local Development
+
+- Use `.env` files for local development only
+- Never share `.env` files between team members via insecure channels
+
+#### Production (Convex)
+
+- Use Convex's built-in secret management
+- Enable audit logging if available
+- Monitor for unusual sync patterns
+
+#### CI/CD
+
+- Use GitHub Secrets or equivalent for CI credentials
+- Never print secrets in CI logs
+- Use secret masking features
+
+### Vulnerability Reporting
+
+If you discover a security vulnerability, please:
+
+1. **Do not** open a public GitHub issue
+2. Email the maintainer directly at danicanod@gmail.com
+3. Include steps to reproduce if possible
+4. Allow reasonable time for a fix before disclosure
+
+### Security Checklist
+
+Before deploying to production:
+
+- [ ] All secrets are stored in environment variables (not hardcoded)
+- [ ] `.env` file is in `.gitignore`
+- [ ] Logging does not expose sensitive data
+- [ ] Notion integration has minimal required permissions
+- [ ] Session directory is excluded from version control
+- [ ] CI/CD secrets are properly configured
+
+## Code Style
+
+### Logging
+
+#### When to Log
+
+- **Info**: Major lifecycle events (login started, login completed, session closed)
+- **Warn**: Recoverable issues (retry attempt, fallback used)
+- **Error**: Failures that need attention
+- **Debug**: Detailed flow information (only shown when debug mode is on)
+
+#### What to Include
+
+- Component name in brackets: `[BanescoClient]`
+- Short action description: `login started`, `fetching transactions`
+- Relevant IDs (masked): `user=V12***`, `account=***1234`
+- Duration when measuring performance: `(1234ms)`
+
+#### What NOT to Include
+
+- Emojis in log output
+- Long ASCII banners or separators
+- Secrets, passwords, or full tokens
+- Verbose stack traces in production
+
+#### Log Format
+
+```
+timestamp level [component] message (optional data)
+```
+
+Example output:
+```
+12:34:56.789 info  [BanescoClient] login started
+12:34:58.123 info  [BanescoClient] login completed (1334ms)
+12:34:58.456 debug [BanescoHttpClient] fetching accounts
+```
+
+### Comments
+
+#### Good Comments (why/constraints)
+
+```typescript
+// Banesco requires iframe navigation; direct fetch doesn't work
+// Retry with exponential backoff to handle rate limiting
+// ASP.NET postback requires these hidden fields
+```
+
+#### Avoid
+
+```typescript
+// ============================================
+// This section handles the login flow
+// ============================================
+
+// Loop through the array
+for (const item of items) { ... }
+
+// Set the variable to true
+isLoggedIn = true;
+```
+
+### Naming Conventions
+
+- **Variables/functions**: `camelCase`
+- **Classes/types**: `PascalCase`
+- **Constants**: `camelCase` or `UPPER_CASE` for true constants
+- **Enum members**: `PascalCase`
+- **Files**: `kebab-case.ts`
+
+### TypeScript Best Practices
+
+- Prefer `unknown` over `any` when type is uncertain
+- Use `const` by default, `let` only when reassignment is needed
+- Prefix unused parameters with `_` or omit from catch blocks
 
 ## License
 
