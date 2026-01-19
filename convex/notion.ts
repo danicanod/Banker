@@ -190,7 +190,7 @@ function calculateRetryDelay(attempt: number): number {
  * @returns Result of the function
  * @throws Last error if all retries fail
  */
-async function withNotionRetry<T>(
+async function _withNotionRetry<T>(
   operation: string,
   fn: () => Promise<T>
 ): Promise<T> {

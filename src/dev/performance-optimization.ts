@@ -7,8 +7,8 @@
  * Banesco uses Playwright only for login, then HTTP for data.
  */
 
-import { createBncClient, quickHttpScrape } from '../../banks/bnc/index.js';
-import { createBanescoClient } from '../../banks/banesco/index.js';
+import { createBncClient, quickHttpScrape } from '../banks/bnc/index.js';
+import { createBanescoClient } from '../banks/banesco/index.js';
 
 // Example credentials (use your real ones)
 const bncCredentials = {
