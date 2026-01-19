@@ -8,7 +8,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 
-**TypeScript library for connecting to Venezuelan bank accounts**
+A TypeScript library for programmatic access to Venezuelan bank accounts.
 
 [Installation](#installation) • [Quick Start](#quick-start) • [Setup](#setup) • [Sync](#sync)
 
@@ -20,8 +20,15 @@
 
 | Bank | Authentication | Transactions |
 |------|---------------|--------------|
-| **Banesco** | Username + Password + Security Questions | Full history |
-| **BNC** | Card + ID + Password | Last 25 |
+| Banesco | Username + Password + Security Questions | Full history |
+| BNC | Card + ID + Password | Last 25 |
+
+## Overview
+
+This library provides typed clients for authenticating with Venezuelan banks and fetching account data.
+
+- Retrieve account balances and transaction history programmatically
+- Optionally sync transactions to Notion via Convex scheduled jobs
 
 ## Installation
 
@@ -39,6 +46,8 @@ Playwright Chromium is installed automatically via postinstall.
 ## Quick Start
 
 ### Banesco
+
+Authenticate, then fetch accounts and movements.
 
 ```typescript
 import { createBanescoClient } from '@danicanod/banker-venezuela';
@@ -62,6 +71,8 @@ await client.close();
 
 ### BNC
 
+Authenticate, then fetch the last 25 transactions.
+
 ```typescript
 import { createBncClient } from '@danicanod/banker-venezuela';
 
@@ -81,7 +92,7 @@ await client.close();
 
 ## Setup
 
-Create a `.env` file based on `env.example`:
+Create a `.env` file for local development. For deployed crons, set secrets in the Convex Dashboard instead.
 
 ```bash
 # Bank credentials
@@ -108,7 +119,7 @@ NOTION_CARTERAS_BNC_PAGE_ID=your_page_id
 
 ### Automatic
 
-Convex crons sync automatically once deployed:
+After deploying to Convex, these crons run on schedule:
 
 | Cron Job | Schedule |
 |----------|----------|
@@ -121,6 +132,8 @@ npx convex deploy
 
 ### Manual
 
+Run sync scripts locally when needed:
+
 ```bash
 npm run sync:banesco
 npm run sync:bnc
@@ -130,12 +143,12 @@ npm run sync:bnc
 
 | Command | Description |
 |---------|-------------|
-| `npx convex deploy` | Deploy to production |
-| `npx convex dev` | Start local dev server |
-| `npm run sync:banesco` | Sync Banesco |
-| `npm run sync:bnc` | Sync BNC |
-| `npm run test` | Run tests |
-| `npm run type-check` | Type check |
+| `npx convex deploy` | Deploy backend to production |
+| `npx convex dev` | Start local Convex dev server |
+| `npm run sync:banesco` | Sync Banesco transactions locally |
+| `npm run sync:bnc` | Sync BNC transactions locally |
+| `npm run test` | Run test suite |
+| `npm run type-check` | Check TypeScript types |
 
 ## Development
 
@@ -147,13 +160,29 @@ npm run build
 
 ## Security
 
-- Never commit `.env` files or credentials
-- Store secrets in environment variables or Convex Dashboard
-- Sessions stored in `.sessions/` (gitignored, 24h expiry)
-- All bank connections use HTTPS
-- Never log passwords, tokens, or full credentials
+### Credentials
 
-**Vulnerability reporting:** Email danicanod@gmail.com (do not open public issues)
+- Never commit `.env` files or any file containing secrets
+- Use environment variables locally; use the Convex Dashboard for deployed secrets
+- Mask sensitive values in logs (e.g., `V12***` instead of full ID)
+
+### Sessions
+
+- Session data is stored in `.sessions/` (gitignored)
+- Sessions expire after 24 hours
+- All bank connections use HTTPS
+
+### Checklist
+
+Before deploying:
+
+- [ ] Secrets stored in environment variables or Convex Dashboard
+- [ ] `.env` excluded via `.gitignore`
+- [ ] Logs do not expose passwords or tokens
+
+### Vulnerability Reporting
+
+Email danicanod@gmail.com. Do not open public issues for security vulnerabilities.
 
 ## License
 
@@ -163,6 +192,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Made for the Venezuelan developer community**
+Made for the Venezuelan developer community
 
 </div>
