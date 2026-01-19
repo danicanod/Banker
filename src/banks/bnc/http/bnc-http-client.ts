@@ -938,27 +938,3 @@ export async function quickHttpLogin(
   const client = createBncHttpClient(credentials, config);
   return client.login();
 }
-
-/**
- * Quick scrape function - login and fetch transactions in one call
- */
-export async function quickHttpScrape(
-  credentials: BncCredentials,
-  config?: BncHttpConfig
-): Promise<BncScrapingResult> {
-  const client = createBncHttpClient(credentials, config);
-  
-  const loginResult = await client.login();
-  if (!loginResult.success) {
-    return {
-      success: false,
-      message: `Login failed: ${loginResult.error}`,
-      data: [],
-      timestamp: new Date(),
-      bankName: 'BNC',
-      error: loginResult.error
-    };
-  }
-
-  return client.fetchLast25Transactions();
-}

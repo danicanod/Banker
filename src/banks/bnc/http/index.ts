@@ -9,7 +9,6 @@ export {
   BncHttpClient,
   createBncHttpClient,
   quickHttpLogin,
-  quickHttpScrape
 } from './bnc-http-client.js';
 
 export type {

@@ -92,7 +92,6 @@ export {
   BncHttpClient,
   createBncHttpClient,
   quickHttpLogin,
-  quickHttpScrape,
 } from './banks/bnc/http/index.js';
 
 export type {

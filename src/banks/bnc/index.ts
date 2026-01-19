@@ -34,7 +34,6 @@ export {
   BncHttpClient,
   createBncHttpClient,
   quickHttpLogin,
-  quickHttpScrape,
 } from './http/index.js';
 export type { BncHttpConfig, BncHttpLoginResult } from './http/index.js';
 

@@ -38,8 +38,6 @@
  * await client.close();
  * ```
  * 
- * @see {@link BncHttpClient} - Lower-level HTTP client
- * @see {@link quickHttpScrape} - One-liner for login + fetch
  */
 
 import { BncHttpClient } from './http/bnc-http-client.js';

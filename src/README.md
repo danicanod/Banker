@@ -18,21 +18,12 @@ The library exports two main client factories from [`./index.ts`](./index.ts):
 | `createBanescoClient()` | Hybrid client: Playwright login + HTTP data fetch |
 | `createBncClient()` | Pure HTTP client: no browser needed |
 
-Advanced exports for lower-level access:
-
-| Export | Description |
-|--------|-------------|
-| `BanescoAuth` | Playwright-based authentication class |
-| `BanescoHttpClient` | HTTP client for post-login data fetching |
-| `BncHttpClient` | Pure HTTP client for BNC |
-| `quickHttpScrape` | One-liner for BNC login + fetch |
-
 ## Supported Banks
 
-| Bank | Mode | Speed | Transactions |
-|------|------|-------|--------------|
-| [Banesco](./banks/banesco/README.md) | Hybrid (Playwright + HTTP) | Fast after login | Full history |
-| [BNC](./banks/bnc/README.md) | Pure HTTP | ~8-10x faster | Last 25 only |
+| Bank | Transactions |
+|------|--------------|
+| [Banesco](./banks/banesco/README.md) | Full history |
+| [BNC](./banks/bnc/README.md) | Last 25 |
 
 ## Entry Point
 
