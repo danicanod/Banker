@@ -126,100 +126,6 @@ function getDatabaseIds(): { banks: string; transactions: string } {
 /**
  * Retry configuration for Notion API calls.
  */
-const NOTION_RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 30000,
-};
-
-/**
- * Check if an error is retryable (rate limit or transient server error).
- */
-function isRetryableNotionError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  
-  const message = error.message.toLowerCase();
-  
-  // Rate limit (429)
-  if (message.includes("rate limit") || message.includes("429")) {
-    return true;
-  }
-  
-  // Transient server errors (5xx)
-  if (message.includes("500") || message.includes("502") || 
-      message.includes("503") || message.includes("504") ||
-      message.includes("internal server error") ||
-      message.includes("bad gateway") ||
-      message.includes("service unavailable")) {
-    return true;
-  }
-  
-  // Network errors
-  if (message.includes("econnreset") || message.includes("etimedout") ||
-      message.includes("enotfound") || message.includes("network")) {
-    return true;
-  }
-  
-  return false;
-}
-
-/**
- * Calculate delay with exponential backoff and jitter.
- */
-function calculateRetryDelay(attempt: number): number {
-  const { baseDelayMs, maxDelayMs } = NOTION_RETRY_CONFIG;
-  const exponentialDelay = baseDelayMs * Math.pow(2, attempt);
-  const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
-  return Math.min(exponentialDelay + jitter, maxDelayMs);
-}
-
-/**
- * Execute a Notion API call with retry logic.
- * 
- * Retries on:
- * - 429 Rate Limit errors
- * - 5xx Server errors
- * - Network errors
- * 
- * Does NOT retry on:
- * - 4xx Client errors (except 429)
- * - Validation errors
- * 
- * @param operation - Description for logging
- * @param fn - Async function to execute
- * @returns Result of the function
- * @throws Last error if all retries fail
- */
-async function _withNotionRetry<T>(
-  operation: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const { maxRetries } = NOTION_RETRY_CONFIG;
-  let lastError: Error | undefined;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      if (attempt < maxRetries && isRetryableNotionError(error)) {
-        const delay = calculateRetryDelay(attempt);
-        console.log(
-          `[Notion Retry] ${operation} failed (attempt ${attempt + 1}/${maxRetries + 1}), ` +
-          `retrying in ${Math.round(delay)}ms: ${lastError.message}`
-        );
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        // Non-retryable error or max retries reached
-        break;
-      }
-    }
-  }
-  
-  throw lastError;
-}
-
 /**
  * Convert Notion ISO date to ms timestamp
  */
@@ -431,10 +337,10 @@ export const syncNotionPull = internalAction({
           
           // Last-write-wins: only update if Notion is newer
           if (notionEditedAt > convexUpdatedAt) {
-            const name = getPropertyValue(notionPage, NOTION_PROPS.BANK_NAME);
-            const active = getPropertyValue(notionPage, NOTION_PROPS.BANK_ACTIVE);
-            const color = getPropertyValue(notionPage, NOTION_PROPS.BANK_COLOR);
-            const logoUrl = getPropertyValue(notionPage, NOTION_PROPS.BANK_LOGO_URL);
+            const name = getPropertyValue(notionPage, NOTION_PROPS.BANK_NAME) as string | undefined;
+            const active = getPropertyValue(notionPage, NOTION_PROPS.BANK_ACTIVE) as boolean | undefined;
+            const color = getPropertyValue(notionPage, NOTION_PROPS.BANK_COLOR) as string | undefined;
+            const logoUrl = getPropertyValue(notionPage, NOTION_PROPS.BANK_LOGO_URL) as string | undefined;
             
             await ctx.runMutation(internal.notion_mutations.patchBankNotionData, {
               bankId: existingBank._id,
@@ -494,7 +400,7 @@ export const syncNotionPull = internalAction({
           // Last-write-wins: only update if Notion is newer
           if (notionEditedAt > convexUpdatedAt) {
             // Only description is editable from Notion (to protect identity fields)
-            const description = getPropertyValue(notionPage, NOTION_PROPS.TXN_DESCRIPTION);
+            const description = getPropertyValue(notionPage, NOTION_PROPS.TXN_DESCRIPTION) as string | undefined;
             
             await ctx.runMutation(internal.notion_mutations.patchTransactionNotionData, {
               txnId: existingTxn._id,

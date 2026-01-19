@@ -596,7 +596,7 @@ export const syncMovimientosPull = internalAction({
 
         try {
           // Extract reference from Notion page
-          const reference = getPropertyValue(notionPage, NOTION_MOV_PROPS.REFERENCIA);
+          const reference = getPropertyValue(notionPage, NOTION_MOV_PROPS.REFERENCIA) as string | undefined;
           
           if (!reference) {
             // No reference means we can't reliably match - try by Notion page ID
@@ -641,7 +641,7 @@ export const syncMovimientosPull = internalAction({
           // Last-write-wins: only update if Notion is newer
           if (notionEditedAt > convexUpdatedAt) {
             // Only description (Nombre) is safely editable from Notion
-            const description = getPropertyValue(notionPage, NOTION_MOV_PROPS.NOMBRE);
+            const description = getPropertyValue(notionPage, NOTION_MOV_PROPS.NOMBRE) as string | undefined;
 
             await ctx.runMutation(internal.notion_movimientos_mutations.patchTransactionMovimientosData, {
               txnId: existingTxn._id,
