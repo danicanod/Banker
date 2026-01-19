@@ -18,10 +18,10 @@
 
 ## Supported Banks
 
-| Bank | Mode | Authentication | Transactions | Speed |
-|------|------|---------------|--------------|-------|
-| **Banesco** | Hybrid (Playwright login + HTTP fetch) | Username + Password + Security Questions | Full history | Fast after login |
-| **BNC** | Pure HTTP (no browser) | Card + ID + Password | Last 25 transactions | ~8-10x faster |
+| Bank | Authentication | Transactions |
+|------|---------------|--------------|
+| **Banesco** | Username + Password + Security Questions | Full history |
+| **BNC** | Card + ID + Password | Last 25 |
 
 ## Installation
 
@@ -34,13 +34,11 @@ npm install @danicanod/banker-venezuela
 - Node.js >= 18
 - npm >= 8
 
-Playwright Chromium is installed automatically via postinstall (required for Banesco login).
+Playwright Chromium is installed automatically via postinstall.
 
 ## Quick Start
 
-### Banesco (Hybrid Mode)
-
-Banesco requires Playwright for login (iframes + security questions), then uses HTTP for fast data fetch.
+### Banesco
 
 ```typescript
 import { createBanescoClient } from '@danicanod/banker-venezuela';
@@ -62,9 +60,7 @@ console.log(`Found ${movements.transactions.length} transactions`);
 await client.close();
 ```
 
-### BNC (Pure HTTP - No Browser)
-
-BNC uses pure HTTP requests - no browser automation needed. This is ~8-10x faster.
+### BNC
 
 ```typescript
 import { createBncClient } from '@danicanod/banker-venezuela';
@@ -83,7 +79,7 @@ console.log(`Found ${result.data?.length} transactions`);
 await client.close();
 ```
 
-### Quick HTTP Scrape (BNC One-liner)
+### Quick Scrape
 
 ```typescript
 import { quickHttpScrape } from '@danicanod/banker-venezuela';
@@ -99,50 +95,32 @@ console.log(`Found ${result.data?.length} transactions`);
 
 ## API Reference
 
-### BanescoClient (Recommended)
+### BanescoClient
 
 ```typescript
 import { createBanescoClient } from '@danicanod/banker-venezuela';
 
 const client = createBanescoClient(credentials, config);
 
-// Login (uses Playwright internally)
 await client.login();
-
-// Fetch data (uses HTTP internally)
 const accounts = await client.getAccounts();
 const movements = await client.getAccountMovements(accountNumber);
-
-// Status
-client.isAuthenticated();
-
-// Cleanup
 await client.close();
 ```
 
-### BncClient (Recommended)
+### BncClient
 
 ```typescript
 import { createBncClient } from '@danicanod/banker-venezuela';
 
 const client = createBncClient(credentials, config);
 
-// Login (pure HTTP)
 await client.login();
-
-// Fetch data (pure HTTP)
 const result = await client.getTransactions();
-
-// Status
-client.isAuthenticated();
-
-// Cleanup
 await client.close();
 ```
 
-### Advanced: BanescoAuth (Lower-level)
-
-For more control over the Banesco authentication flow:
+### BanescoAuth (Low-level)
 
 ```typescript
 import { BanescoAuth } from '@danicanod/banker-venezuela';
@@ -159,9 +137,7 @@ if (result.success) {
 await auth.close();
 ```
 
-### Advanced: BncHttpClient (Lower-level)
-
-For direct HTTP access to BNC:
+### BncHttpClient (Low-level)
 
 ```typescript
 import { createBncHttpClient } from '@danicanod/banker-venezuela';
@@ -195,7 +171,7 @@ interface BanescoClientConfig {
 interface BncClientConfig {
   timeout?: number;     // Default: 30000ms
   debug?: boolean;      // Default: false
-  logoutFirst?: boolean; // Default: true (clears existing sessions)
+  logoutFirst?: boolean; // Default: true
 }
 ```
 
@@ -204,94 +180,60 @@ interface BncClientConfig {
 Create a `.env` file based on `env.example`:
 
 ```bash
-# Banesco
 BANESCO_USERNAME=V12345678
 BANESCO_PASSWORD=your_password
 BANESCO_SECURITY_QUESTIONS=anime:Naruto,mascota:Firulais
-
-# BNC
 BNC_ID=V12345678
 BNC_CARD=1234567890123456
 BNC_PASSWORD=your_password
-
-# Convex (for local sync scripts)
 CONVEX_URL=https://your-deployment.convex.cloud
 ```
 
 ## Examples
 
-Run the included examples:
-
 ```bash
-# Banesco example
 npm run example:banesco
-
-# Banesco hybrid example (step-by-step)
 npm run example:banesco-hybrid
-
-# BNC example (pure HTTP)
 npm run example:bnc
-
-# Performance examples
-npm run example:performance
 ```
 
 ## Usage Guide
 
-This project has **two sync modes**: automatic (Convex crons) and manual (local scripts).
+### Automatic Sync
 
-### Automatic Sync (Convex - Runs 24/7)
+Convex crons handle sync automatically:
 
-Once deployed, Convex handles everything automatically:
+| Cron Job | Schedule |
+|----------|----------|
+| `sync-banesco-transactions` | Daily 07:00 VE |
+| `sync-notion-bidirectional` | Every 15 min |
 
-| Cron Job | Schedule | What it does |
-|----------|----------|--------------|
-| `sync-banesco-transactions` | Daily 07:00 VE | Scrapes Banesco via Browserbase → Convex |
-| `sync-notion-bidirectional` | Every 15 min | Syncs Convex ↔ Notion (both directions) |
-
-**Your data flows automatically:**
-```
-Banesco Bank → [Browserbase] → Convex DB → [Cron] → Notion Database
-                                    ↑                      ↓
-                              Notion edits sync back to Convex
-```
-
-**To deploy:**
+**Deploy:**
 ```bash
 npx convex deploy
 ```
 
-**Required Convex Environment Variables** (set in [Convex Dashboard](https://dashboard.convex.dev)):
+**Convex environment variables** (set in [Convex Dashboard](https://dashboard.convex.dev)):
 ```bash
-# Browserbase (for remote browser)
 BROWSERBASE_API_KEY=your_api_key
 BROWSERBASE_PROJECT_ID=your_project_id
-
-# Banesco credentials
 BANESCO_USERNAME=V12345678
 BANESCO_PASSWORD=your_password
 BANESCO_SECURITY_QUESTIONS=anime:Naruto,mascota:Firulais
-
-# Notion integration
 NOTION_API_TOKEN=secret_xxx
 NOTION_MOVIMIENTOS_DATABASE_ID=your_database_id
 NOTION_CARTERAS_BANESCO_PAGE_ID=your_page_id
 NOTION_CARTERAS_BNC_PAGE_ID=your_page_id
 ```
 
-### Manual Sync (Local Scripts)
-
-For on-demand syncs from your machine:
+### Manual Sync
 
 ```bash
-# Sync Banesco transactions (uses local Playwright)
 npm run sync:banesco
-
-# Sync BNC transactions (pure HTTP, fast)
 npm run sync:bnc
 ```
 
-**Required local `.env`:**
+**Local `.env`:**
 ```bash
 CONVEX_URL=https://your-deployment.convex.cloud
 BANESCO_USERNAME=V12345678
@@ -323,56 +265,40 @@ BNC_PASSWORD=your_password
 
 ## Documentation
 
-Detailed documentation lives next to the code:
-
-| Directory | Description | README |
-|-----------|-------------|--------|
-| `src/` | TypeScript library source | [src/README.md](src/README.md) |
-| `src/banks/` | Bank client implementations | [src/banks/README.md](src/banks/README.md) |
-| `src/banks/banesco/` | Banesco hybrid client | [src/banks/banesco/README.md](src/banks/banesco/README.md) |
-| `src/banks/bnc/` | BNC pure HTTP client | [src/banks/bnc/README.md](src/banks/bnc/README.md) |
-| `src/shared/` | Shared utilities and base classes | [src/shared/README.md](src/shared/README.md) |
-| `convex/` | Convex backend + Notion sync | [convex/README.md](convex/README.md) |
-| `scripts/` | Local sync scripts | [scripts/README.md](scripts/README.md) |
+| Directory | Description |
+|-----------|-------------|
+| `src/banks/banesco/` | Banesco client |
+| `src/banks/bnc/` | BNC client |
+| `src/shared/` | Shared utilities |
+| `convex/` | Backend + Notion sync |
+| `scripts/` | Sync scripts |
 
 ## Architecture
 
 ```
 src/
-├── index.ts                    # Main library exports
+├── index.ts
 ├── banks/
 │   ├── banesco/
-│   │   ├── client.ts           # BanescoClient (recommended)
-│   │   ├── auth/               # Playwright-based login
-│   │   ├── http/               # HTTP client for data fetch
-│   │   ├── types/              # TypeScript types
-│   │   └── examples/           # Usage examples
+│   │   ├── client.ts
+│   │   ├── auth/
+│   │   ├── http/
+│   │   └── types/
 │   └── bnc/
-│       ├── client.ts           # BncClient (recommended)
-│       ├── http/               # Pure HTTP client
-│       ├── types/              # TypeScript types
-│       └── examples/           # Usage examples
+│       ├── client.ts
+│       ├── http/
+│       └── types/
 └── shared/
-    ├── base-bank-auth.ts       # Abstract auth base class
-    ├── performance-config.ts   # Performance presets
-    └── utils/                  # Shared utilities
+    ├── base-bank-auth.ts
+    └── utils/
 ```
 
 ## Development
 
 ```bash
-# Install dependencies
 npm install
-
-# Type check
 npm run type-check
-
-# Build
 npm run build
-
-# Run examples
-npm run example:banesco
-npm run example:bnc
 ```
 
 ## Security
