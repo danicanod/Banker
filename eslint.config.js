@@ -73,7 +73,7 @@ export default tseslint.config(
     },
   },
   {
-    // Allow console in logger utilities, auth flows, examples, scripts, and CLI files
+    // Allow console in logger utilities, auth flows, examples, and client files
     files: [
       '**/strategic-logger.ts',
       '**/network-logger.ts',
@@ -86,8 +86,6 @@ export default tseslint.config(
       '**/html-saver.ts',
       '**/session-manager.ts',
       '**/examples/**',
-      '**/scripts/**',
-      '**/convex/**',
       '**/*-http-client.ts',
       '**/client.ts',
     ],
@@ -97,6 +95,6 @@ export default tseslint.config(
   },
   {
     // Ignore generated files and dist
-    ignores: ['dist/**', 'convex/_generated/**', 'node_modules/**'],
+    ignores: ['dist/**', 'node_modules/**'],
   }
 );

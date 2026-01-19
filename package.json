@@ -1,5 +1,5 @@
 {
-  "name": "@danicanod/banker-venezuela",
+  "name": "@danicanod/banker",
   "version": "2.1.0",
   "description": "TypeScript library for connecting to Venezuelan bank accounts (Banesco & BNC). Hybrid Playwright/HTTP architecture for reliability and speed.",
   "main": "dist/index.js",
@@ -21,22 +21,15 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src/ convex/ scripts/ --ignore-pattern 'convex/_generated/**' --ignore-pattern 'src/dev/**'",
-    "lint:fix": "eslint src/ convex/ scripts/ --ignore-pattern 'convex/_generated/**' --ignore-pattern 'src/dev/**' --fix",
+    "lint": "eslint src/ --ignore-pattern 'src/dev/**'",
+    "lint:fix": "eslint src/ --ignore-pattern 'src/dev/**' --fix",
     "clean": "rm -rf dist/",
     "rebuild": "npm run clean && npm run build",
     "example:banesco": "tsx src/banks/banesco/examples/basic-usage.ts",
     "example:banesco-hybrid": "tsx src/banks/banesco/examples/hybrid-usage.ts",
     "example:bnc": "tsx src/banks/bnc/examples/http-usage.ts",
-    "example:bnc-http": "tsx src/banks/bnc/examples/http-usage.ts",
-    "example:performance": "tsx src/dev/performance-optimization.ts",
-    "capture:banesco": "CAPTURE_BANK=banesco tsx src/dev/capture-network-flow.ts",
-    "capture:bnc": "CAPTURE_BANK=bnc tsx src/dev/capture-network-flow.ts",
-    "test": "tsx scripts/_sync-utils.test.ts",
-    "sync": "tsx scripts/banesco-sync.ts",
-    "sync:banesco": "tsx scripts/banesco-sync.ts",
-    "sync:bnc": "tsx scripts/bnc-sync.ts",
     "postinstall": "npx playwright install chromium"
   },
   "keywords": [
@@ -60,12 +53,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/danicanod/banker-venezuela.git"
+    "url": "git+https://github.com/danicanod/banker.git"
   },
   "bugs": {
-    "url": "https://github.com/danicanod/banker-venezuela/issues"
+    "url": "https://github.com/danicanod/banker/issues"
   },
-  "homepage": "https://github.com/danicanod/banker-venezuela#readme",
+  "homepage": "https://github.com/danicanod/banker#readme",
   "author": {
     "name": "Daniel Sanchez",
     "email": "danicanod@gmail.com",
@@ -106,13 +99,9 @@
     "typescript-eslint": "^8.18.2"
   },
   "dependencies": {
-    "@browserbasehq/sdk": "^2.6.0",
-    "@notionhq/client": "^2.3.0",
     "cheerio": "^1.1.2",
-    "convex": "^1.31.5",
     "dotenv": "^16.5.0",
     "playwright": "^1.49.1",
-    "playwright-core": "^1.57.0",
     "tough-cookie": "^6.0.0"
   }
 }

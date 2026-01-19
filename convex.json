@@ -1,9 +1,0 @@
-{
-  "node": {
-    "externalPackages": [
-      "@browserbasehq/sdk",
-      "@notionhq/client",
-      "playwright-core"
-    ]
-  }
-}

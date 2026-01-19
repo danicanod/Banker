@@ -133,3 +133,18 @@ export {
   PERFORMANCE_PRESETS,
   type PerformanceConfig,
 } from './shared/performance-config.js';
+
+// ============================================================================
+// Unified Transaction Model Exports
+// ============================================================================
+
+export {
+  makeTxnKey,
+  normalizeTransaction,
+  normalizeTransactions,
+  type Transaction,
+  type TxnKeyInput,
+  type BankCode,
+  type BankTransactionInput,
+  type NormalizeOptions,
+} from './transactions/index.js';

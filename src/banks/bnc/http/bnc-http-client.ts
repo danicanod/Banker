@@ -22,7 +22,8 @@ import {
   extractRequestVerificationToken
 } from '../../../shared/utils/http-client.js';
 import type { BncCredentials, BncTransaction, BncScrapingResult } from '../types/index.js';
-import { BncAccountType } from '../types/index.js';
+// BncAccountType imported for potential future use
+import type { BncAccountType as _BncAccountType } from '../types/index.js';
 
 // ============================================================================
 // Types
@@ -619,134 +620,8 @@ export class BncHttpClient {
   }
 
   // ==========================================================================
-  // Internal: Transaction Fetching
+  // Internal: Transaction Parsing
   // ==========================================================================
-
-  private async fetchAccountTransactions(accountIndex: number, accountName: string): Promise<BncTransaction[]> {
-    // BNC uses AJAX to load transactions via POST to /Accounts/Transactions/Last25_List
-    // The form #Frm_Accounts is serialized and sent
-    // Key insight: The select field is named "Account" and values are encrypted hex strings
-    
-    // First, load the transactions page to get the CSRF token and form structure
-    const pageHtml = await this.httpClient.getHtml(BNC_HTTP_URLS.TRANSACTIONS_PAGE, {
-      'Referer': BNC_HTTP_URLS.WELCOME
-    });
-
-    // Extract token and form fields from the page
-    const $ = cheerio.load(pageHtml);
-    const token = extractRequestVerificationToken(pageHtml);
-    
-    if (!token) {
-      this.log(`    No token found on transactions page`);
-    }
-    
-    // Log what's on the page for debugging
-    const hasForm = $('#Frm_Accounts').length > 0;
-    // The select is named "Account", not "ddlAccounts"!
-    const accountSelect = $('#Frm_Accounts select[name="Account"], select#Account');
-    const hasAccountSelect = accountSelect.length > 0;
-    this.log(`   Page has #Frm_Accounts: ${hasForm}, has select Account: ${hasAccountSelect}`);
-    
-    // Extract all form fields from #Frm_Accounts
-    const formData: Record<string, string> = {};
-    
-    // Add CSRF token from the form (not the one from login)
-    if (token) {
-      formData['__RequestVerificationToken'] = token;
-    }
-    
-    // Extract hidden fields from the form
-    $('#Frm_Accounts input[type="hidden"]').each((_, el) => {
-      const name = $(el).attr('name');
-      const value = $(el).attr('value') || '';
-      if (name && name !== '__RequestVerificationToken') {  // Don't override token
-        formData[name] = value;
-        this.log(`   Hidden field: ${name}=${value.substring(0, 30)}${value.length > 30 ? '...' : ''}`);
-      }
-    });
-    
-    // Get account options from select dropdown
-    // BNC uses encrypted hex strings as account values, not simple indices!
-    // Example: "0x02000000FA96288046229F90134100880C54DD08..."
-    const accountValues: string[] = [];
-    if (hasAccountSelect) {
-      accountSelect.find('option').each((_, el) => {
-        const val = $(el).attr('value');
-        const text = $(el).text().trim();
-        if (val && val !== '0') {  // Skip the "-- Seleccione --" option (value="0")
-          accountValues.push(val);
-          this.log(`   Account option: ${text.substring(0, 40)}... → ${val.substring(0, 30)}...`);
-        }
-      });
-    }
-    
-    // Set the selected account using the actual hex value from the options
-    // accountIndex is 1-based, so accountValues[0] = account 1, etc.
-    const selectedAccountValue = accountValues[accountIndex - 1];
-    if (!selectedAccountValue) {
-      this.log(`    No account found at index ${accountIndex} (available: ${accountValues.length})`);
-      return [];
-    }
-    
-    // The form field is "Account", not "ddlAccounts"!
-    formData['Account'] = selectedAccountValue;
-    
-    this.log(`   Sending ${Object.keys(formData).length} form fields with Account=${selectedAccountValue.substring(0, 30)}...`);
-
-    // POST to the AJAX endpoint that returns transaction HTML
-    try {
-      const result = await this.httpClient.postForm(BNC_HTTP_URLS.TRANSACTIONS_LIST, formData, {
-        'Referer': BNC_HTTP_URLS.TRANSACTIONS_PAGE,
-        'Accept': '*/*',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin'
-      });
-      
-      this.log(`   Got response (${result.html.length} chars): ${result.html.substring(0, 300)}`);
-      
-      // The response is JSON with Type and Value (HTML content)
-      try {
-        const jsonResponse = JSON.parse(result.html);
-        
-        this.log(`   Response Type: ${jsonResponse.Type}, Message: ${jsonResponse.Message || 'none'}`);
-        
-        if (jsonResponse.Type === 200 && jsonResponse.Value) {
-          // Value contains the HTML with the transaction table
-          return this.parseTransactionsHtml(jsonResponse.Value, accountName);
-        } else if (jsonResponse.Type === 300) {
-          // Type 300 = no transactions found (based on Transactions.js code)
-          this.log(`   No transactions found (Type 300)`);
-          return [];
-        } else if (jsonResponse.Type === 350) {
-          // Type 350 = error message (from Transactions.js code)
-          this.log(`   Error response: ${jsonResponse.Value || jsonResponse.Message}`);
-          return [];
-        } else if (jsonResponse.Type === 500) {
-          // Type 500 = server error or invalid request
-          this.log(`   Server error (Type 500): ${jsonResponse.Value || jsonResponse.Message || 'unknown'}`);
-          return [];
-        } else if (jsonResponse.Type === 505) {
-          // Session expired
-          this.log(`   Session expired (Type 505)`);
-          this.isAuthenticated = false;
-          return [];
-        }
-      } catch {
-        // Not JSON - maybe direct HTML?
-        if (result.html.includes('Tbl_Transactions')) {
-          return this.parseTransactionsHtml(result.html, accountName);
-        }
-      }
-      
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.log(`   POST to transactions list failed: ${message}`);
-    }
-
-    return [];
-  }
 
   /**
    * Parse transactions from HTML table
