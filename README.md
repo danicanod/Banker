@@ -236,26 +236,90 @@ npm run example:bnc
 npm run example:performance
 ```
 
-## Local Sync to Convex
+## Usage Guide
 
-Sync transactions to a Convex backend with idempotent ingestion:
+This project has **two sync modes**: automatic (Convex crons) and manual (local scripts).
+
+### Automatic Sync (Convex - Runs 24/7)
+
+Once deployed, Convex handles everything automatically:
+
+| Cron Job | Schedule | What it does |
+|----------|----------|--------------|
+| `sync-banesco-transactions` | Daily 07:00 VE | Scrapes Banesco via Browserbase → Convex |
+| `sync-notion-bidirectional` | Every 15 min | Syncs Convex ↔ Notion (both directions) |
+
+**Your data flows automatically:**
+```
+Banesco Bank → [Browserbase] → Convex DB → [Cron] → Notion Database
+                                    ↑                      ↓
+                              Notion edits sync back to Convex
+```
+
+**To deploy:**
+```bash
+npx convex deploy
+```
+
+**Required Convex Environment Variables** (set in [Convex Dashboard](https://dashboard.convex.dev)):
+```bash
+# Browserbase (for remote browser)
+BROWSERBASE_API_KEY=your_api_key
+BROWSERBASE_PROJECT_ID=your_project_id
+
+# Banesco credentials
+BANESCO_USERNAME=V12345678
+BANESCO_PASSWORD=your_password
+BANESCO_SECURITY_QUESTIONS=anime:Naruto,mascota:Firulais
+
+# Notion integration
+NOTION_API_TOKEN=secret_xxx
+NOTION_MOVIMIENTOS_DATABASE_ID=your_database_id
+NOTION_CARTERAS_BANESCO_PAGE_ID=your_page_id
+NOTION_CARTERAS_BNC_PAGE_ID=your_page_id
+```
+
+### Manual Sync (Local Scripts)
+
+For on-demand syncs from your machine:
 
 ```bash
-# Sync Banesco transactions
-npm run sync              # or npm run sync:banesco
+# Sync Banesco transactions (uses local Playwright)
+npm run sync:banesco
 
 # Sync BNC transactions (pure HTTP, fast)
 npm run sync:bnc
 ```
 
-Features:
-- **Idempotent**: Duplicate transactions are automatically skipped
-- **Deterministic IDs**: Transaction keys are hash-based for collision resistance
-- **Events**: Each new transaction creates a `transaction.created` event for notifications
+**Required local `.env`:**
+```bash
+CONVEX_URL=https://your-deployment.convex.cloud
+BANESCO_USERNAME=V12345678
+BANESCO_PASSWORD=your_password
+BANESCO_SECURITY_QUESTIONS=anime:Naruto,mascota:Firulais
+BNC_ID=V12345678
+BNC_CARD=1234567890123456
+BNC_PASSWORD=your_password
+```
 
-Requirements:
-- Set `CONVEX_URL` in your `.env` file
-- Run `npx convex dev` to start your Convex backend
+### Quick Reference
+
+| I want to... | Command |
+|--------------|---------|
+| Deploy to production | `npx convex deploy` |
+| Start local dev server | `npx convex dev` |
+| Manually sync Banesco | `npm run sync:banesco` |
+| Manually sync BNC | `npm run sync:bnc` |
+| Run tests | `npm run test` |
+| Type check | `npm run type-check` |
+
+### Features
+
+- **Idempotent ingestion**: Duplicate transactions are automatically skipped
+- **Deterministic IDs**: Transaction keys use SHA-256 hashes for collision resistance
+- **Overlap prevention**: Cron jobs won't run concurrently (lock mechanism)
+- **Notion retry logic**: Handles rate limits (429) and transient errors
+- **Schema validation**: Fails fast if Notion database schema drifts
 
 ## Documentation
 
