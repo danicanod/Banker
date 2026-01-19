@@ -2,13 +2,38 @@
 
 Serverless backend for storing bank data and synchronizing with Notion. Handles transaction ingestion, event emission, and bidirectional Notion sync.
 
+**Audience:** Contributors working on the backend, ops engineers managing syncs.
+
+## For Library Users
+
+If you're using `@danicanod/banker-venezuela` as a library, you don't need to understand this backend. See:
+- [Root README](../README.md) for installation and quickstart
+- [Library source](../src/README.md) for API documentation
+
 ## Table of Contents
 
+- [Required Environment Variables](#required-environment-variables)
 - [Data Model](#data-model)
 - [Ingestion Flow](#ingestion-flow)
 - [Notion Sync](#notion-sync)
 - [Cron Jobs](#cron-jobs)
 - [Operations](#operations)
+
+## Required Environment Variables
+
+Set these in the Convex Dashboard for deployed crons:
+
+| Variable | Purpose |
+|----------|---------|
+| `BROWSERBASE_API_KEY` | Browserbase authentication |
+| `BROWSERBASE_PROJECT_ID` | Browserbase project identifier |
+| `BANESCO_USERNAME` | Banesco login username |
+| `BANESCO_PASSWORD` | Banesco login password |
+| `BANESCO_SECURITY_QUESTIONS` | Security question answers (`keyword:answer,...`) |
+| `NOTION_API_TOKEN` | Notion API integration token |
+| `NOTION_MOVIMIENTOS_DATABASE_ID` | Target Notion database for transactions |
+| `NOTION_CARTERAS_BANESCO_PAGE_ID` | Banesco wallet page in Notion |
+| `NOTION_CARTERAS_BNC_PAGE_ID` | BNC wallet page in Notion |
 
 ## Data Model
 
@@ -49,7 +74,9 @@ Implemented in [`./transactions.ts`](./transactions.ts):
 
 Two sync systems operate in parallel:
 
-### Generic Sync ([`./notion.ts`](./notion.ts), [`./notion_mutations.ts`](./notion_mutations.ts))
+### Generic Sync
+
+**Files:** [`./notion.ts`](./notion.ts), [`./notion_mutations.ts`](./notion_mutations.ts)
 
 Syncs banks and transactions to general Notion databases.
 
@@ -60,9 +87,11 @@ Syncs banks and transactions to general Notion databases.
 
 Conflict resolution: **Last-write-wins** based on timestamps.
 
-### Movimientos Sync ([`./notion_movimientos.ts`](./notion_movimientos.ts), [`./notion_movimientos_mutations.ts`](./notion_movimientos_mutations.ts))
+### Movimientos Sync
 
-Specialized sync for the "🔄 Movimientos" database with financial tracking features.
+**Files:** [`./notion_movimientos.ts`](./notion_movimientos.ts), [`./notion_movimientos_mutations.ts`](./notion_movimientos_mutations.ts)
+
+Specialized sync for the "Movimientos" database with financial tracking features.
 
 **Matching strategy:**
 1. Primary: Match by `Referencia` field (transaction reference number)
@@ -92,7 +121,9 @@ Configured in [`./crons.ts`](./crons.ts):
 | `dailyBanescoSync` | `0 11 * * *` (11:00 UTC / 7:00 VE) | Scrape Banesco via Browserbase → ingest |
 | `notionBidirectionalSync` | `*/15 * * * *` (every 15 min) | Pull from Notion, then push to Notion |
 
-### Browserbase Sync ([`./sync.ts`](./sync.ts))
+### Browserbase Sync
+
+**File:** [`./sync.ts`](./sync.ts)
 
 Uses Browserbase cloud browser service for headless Banesco scraping:
 
@@ -102,11 +133,11 @@ Uses Browserbase cloud browser service for headless Banesco scraping:
 4. Ingest transactions to Convex
 5. Close browser session
 
-Required env vars: `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`
-
 ## Operations
 
-### Cleanup Utility ([`./cleanup_movimientos.ts`](./cleanup_movimientos.ts))
+### Cleanup Utility
+
+**File:** [`./cleanup_movimientos.ts`](./cleanup_movimientos.ts)
 
 Archives Notion pages for Banesco transactions missing reference numbers:
 
@@ -115,7 +146,7 @@ npx convex run cleanup_movimientos:cleanupBanescoMissingReferencia \
   '{"secret":"YOUR_SECRET","dryRun":true,"limit":100}'
 ```
 
-Safety features:
+**Safety features:**
 - Only processes transactions with stored `notionPageId`
 - Double-checks Notion page before archiving
 - Skips if user manually added a reference

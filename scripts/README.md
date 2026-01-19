@@ -2,41 +2,58 @@
 
 Local scripts for syncing bank transactions to the Convex backend. Run these manually or via npm scripts.
 
+**Audience:** Developers running local syncs or debugging the sync pipeline.
+
 ## Table of Contents
 
+- [Quickstart](#quickstart)
 - [Available Scripts](#available-scripts)
 - [Environment Variables](#environment-variables)
 - [Shared Utilities](#shared-utilities)
 - [Output Format](#output-format)
+- [Troubleshooting](#troubleshooting)
+
+## Quickstart
+
+1. Copy `env.example` to `.env` and fill in your credentials
+2. Ensure Convex is deployed: `npx convex deploy`
+3. Run a sync:
+
+```bash
+npm run sync:banesco    # Sync Banesco transactions
+npm run sync:bnc        # Sync BNC transactions
+```
 
 ## Available Scripts
 
-### Banesco Sync ([`./banesco-sync.ts`](./banesco-sync.ts))
+### Banesco Sync
 
-Syncs Banesco transactions to Convex using the hybrid client.
+**File:** [`./banesco-sync.ts`](./banesco-sync.ts)
+
+Syncs Banesco transactions to Convex using the hybrid client (Playwright + HTTP).
 
 ```bash
 npm run sync:banesco
-# or
-npm run sync
 ```
 
-Flow:
+**Flow:**
 1. Load credentials from environment
 2. Login via Playwright (handles iframes, security questions)
 3. Fetch accounts and movements via HTTP
 4. Ingest transactions to Convex (idempotent)
 5. Report created/skipped counts
 
-### BNC Sync ([`./bnc-sync.ts`](./bnc-sync.ts))
+### BNC Sync
 
-Syncs BNC transactions to Convex using pure HTTP.
+**File:** [`./bnc-sync.ts`](./bnc-sync.ts)
+
+Syncs BNC transactions to Convex using pure HTTP (no browser).
 
 ```bash
 npm run sync:bnc
 ```
 
-Flow:
+**Flow:**
 1. Load credentials from environment
 2. Login via HTTP (no browser)
 3. Fetch last 25 transactions per account
@@ -64,7 +81,7 @@ CONVEX_URL=https://your-deployment.convex.cloud
 
 ## Shared Utilities
 
-### _sync-utils.ts ([`./_sync-utils.ts`](./_sync-utils.ts))
+**File:** [`./_sync-utils.ts`](./_sync-utils.ts)
 
 Common helpers used by all sync scripts:
 
@@ -110,6 +127,17 @@ Successful sync output:
 [Sync] Created: 12, Skipped: 3
 [Sync] Done in 18.5s
 ```
+
+## Troubleshooting
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `CONVEX_URL is required` | Missing environment variable | Add `CONVEX_URL` to your `.env` file |
+| `Login failed: Invalid credentials` | Wrong username/password | Verify credentials match your bank account |
+| `Security question not found` | Missing security question answer | Add the keyword:answer pair to `BANESCO_SECURITY_QUESTIONS` |
+| `ECONNREFUSED` | Convex not running | Run `npx convex dev` or deploy with `npx convex deploy` |
+| `Timeout waiting for element` | Bank site changed or slow | Retry; if persistent, check for site updates |
+| `Browser closed unexpectedly` | Playwright crash | Ensure Chromium is installed: `npx playwright install chromium` |
 
 ---
 

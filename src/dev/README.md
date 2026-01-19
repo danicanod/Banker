@@ -27,4 +27,7 @@ Demonstrates optimal client usage patterns for each bank.
 
 ---
 
-[← Back to src](../README.md)
+**Navigation:**
+- [Back to src](../README.md)
+- [Banks overview](../banks/README.md)
+- [Shared utilities](../shared/README.md)
